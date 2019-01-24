@@ -13,7 +13,9 @@ import saros.activities.SPath;
 import saros.activities.TextEditActivity;
 import saros.concurrent.jupiter.Operation;
 import saros.concurrent.jupiter.TransformationException;
+import saros.repackaged.picocontainer.Startable;
 import saros.session.ISarosSession;
+import saros.synchronize.UISynchronizer;
 
 /**
  * ConcurrentDocumentClient is responsible for managing the Jupiter interaction on the local side of
@@ -25,7 +27,7 @@ import saros.session.ISarosSession;
  * <p>When JupiterActivities are received from the server they are transformed by the
  * ConcurrentDocumentClient to TextEditActivities which can then be executed locally.
  */
-public class ConcurrentDocumentClient {
+public class ConcurrentDocumentClient implements Startable {
 
   private static Logger log = Logger.getLogger(ConcurrentDocumentClient.class);
 
@@ -33,10 +35,10 @@ public class ConcurrentDocumentClient {
 
   private final JupiterClient jupiterClient;
 
-  public ConcurrentDocumentClient(ISarosSession sarosSession) {
+  public ConcurrentDocumentClient(ISarosSession sarosSession, UISynchronizer uiSynchronizer) {
 
     this.sarosSession = sarosSession;
-    this.jupiterClient = new JupiterClient(sarosSession);
+    this.jupiterClient = new JupiterClient(sarosSession, uiSynchronizer);
   }
 
   /**
@@ -187,5 +189,15 @@ public class ConcurrentDocumentClient {
       // TODO this should trigger a consistency recovery. Difficult :-(
       return false;
     }
+  }
+
+  @Override
+  public void start() {
+    this.jupiterClient.start();
+  }
+
+  @Override
+  public void stop() {
+    this.jupiterClient.stop();
   }
 }

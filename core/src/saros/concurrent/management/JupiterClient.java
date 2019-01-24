@@ -1,6 +1,7 @@
 package saros.concurrent.management;
 
-import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import saros.activities.ChecksumActivity;
 import saros.activities.JupiterActivity;
 import saros.activities.SPath;
@@ -8,15 +9,19 @@ import saros.activities.TextEditActivity;
 import saros.concurrent.jupiter.Operation;
 import saros.concurrent.jupiter.TransformationException;
 import saros.concurrent.jupiter.internal.Jupiter;
+import saros.repackaged.picocontainer.Startable;
 import saros.session.ISarosSession;
+import saros.synchronize.UISynchronizer;
 
 /** A JupiterClient manages Jupiter client docs for a single user with several paths */
-public class JupiterClient {
+public class JupiterClient implements Startable {
 
   protected ISarosSession sarosSession;
+  private Heartbeat heartbeat;
 
-  public JupiterClient(ISarosSession sarosSession) {
+  public JupiterClient(ISarosSession sarosSession, UISynchronizer uiSynchronizer) {
     this.sarosSession = sarosSession;
+    this.heartbeat = new Heartbeat(sarosSession, uiSynchronizer, clientDocs);
   }
 
   /**
@@ -24,17 +29,11 @@ public class JupiterClient {
    *
    * @host and @client
    */
-  protected final HashMap<SPath, Jupiter> clientDocs = new HashMap<SPath, Jupiter>();
+  private final Map<SPath, Jupiter> clientDocs = new ConcurrentHashMap<SPath, Jupiter>();
 
   /** @host and @client */
   protected synchronized Jupiter get(SPath path) {
-
-    Jupiter clientDoc = this.clientDocs.get(path);
-    if (clientDoc == null) {
-      clientDoc = new Jupiter(true);
-      this.clientDocs.put(path, clientDoc);
-    }
-    return clientDoc;
+    return clientDocs.computeIfAbsent(path, (key) -> new Jupiter(true));
   }
 
   public synchronized Operation receive(JupiterActivity jupiterActivity)
@@ -70,5 +69,15 @@ public class JupiterClient {
   public synchronized ChecksumActivity withTimestamp(ChecksumActivity checksumActivity) {
 
     return get(checksumActivity.getPath()).withTimestamp(checksumActivity);
+  }
+
+  @Override
+  public void start() {
+    this.heartbeat.start();
+  }
+
+  @Override
+  public void stop() {
+    this.heartbeat.stop();
   }
 }
