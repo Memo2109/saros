@@ -15,6 +15,7 @@ import saros.intellij.eventhandler.editor.editorstate.ViewportAdjustmentExecutor
 import saros.intellij.eventhandler.editor.selection.LocalTextSelectionChangeHandler;
 import saros.intellij.eventhandler.editor.viewport.LocalViewPortChangeHandler;
 import saros.intellij.eventhandler.filesystem.LocalFilesystemModificationHandler;
+import saros.intellij.eventhandler.project.ProjectClosedHandler;
 import saros.intellij.filesystem.VirtualFileConverter;
 import saros.intellij.followmode.FollowModeNotificationDispatcher;
 import saros.intellij.project.SharedResourcesManager;
@@ -31,6 +32,7 @@ public class SarosIntellijSessionContextFactory extends SarosCoreSessionContextF
   public void createNonCoreComponents(ISarosSession session, MutablePicoContainer container) {
     // Project interaction
     container.addComponent(ProjectAPI.class);
+    container.addComponent(ProjectClosedHandler.class);
 
     // Editor interaction
     container.addComponent(EditorAPI.class);

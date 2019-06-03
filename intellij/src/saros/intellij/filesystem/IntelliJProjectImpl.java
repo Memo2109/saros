@@ -13,6 +13,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import org.apache.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +26,7 @@ import saros.filesystem.IProject;
 import saros.filesystem.IResource;
 import saros.intellij.project.filesystem.IntelliJPathImpl;
 
+/** A <code>IntelliJProjectImpl</code> represents a specific module loaded in a specific project. */
 public final class IntelliJProjectImpl extends IntelliJResourceImpl implements IProject {
 
   /*
@@ -39,11 +41,11 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
 
   private static final Logger LOG = Logger.getLogger(IntelliJProjectImpl.class);
 
-  // Module names are unique (even among different projects)
+  private final Project project;
+
   private final String moduleName;
 
   private volatile Module module;
-
   private volatile VirtualFile moduleRoot;
 
   /**
@@ -66,6 +68,9 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
    */
   public IntelliJProjectImpl(@NotNull final Module module) {
     this.module = module;
+
+    this.project = module.getProject();
+
     this.moduleName = module.getName();
 
     moduleRoot = getModuleContentRoot(module);
@@ -216,8 +221,6 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
    */
   public boolean refreshModule() throws ModuleNotFoundException {
     if (module.isDisposed()) {
-      Project project = module.getProject();
-
       Module newModule = ModuleManager.getInstance(project).findModuleByName(moduleName);
 
       if (newModule == null) {
@@ -525,7 +528,7 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
 
   @Override
   public int hashCode() {
-    return moduleName.hashCode();
+    return Objects.hash(project.getName(), project.getProjectFilePath(), moduleName);
   }
 
   @Override
@@ -539,11 +542,22 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
 
     IntelliJProjectImpl other = (IntelliJProjectImpl) obj;
 
-    return moduleName.equals(other.moduleName);
+    boolean sameProjectName = project.getName().equals(other.project.getName());
+    boolean sameModuleName = moduleName.equals(other.moduleName);
+    boolean sameProjectFilePath =
+        Objects.equals(project.getProjectFilePath(), other.project.getProjectFilePath());
+
+    return sameProjectName && sameModuleName && sameProjectFilePath;
   }
 
   @Override
   public String toString() {
-    return getClass().getSimpleName() + " : " + moduleName;
+    return getClass().getSimpleName()
+        + " : "
+        + project.getName()
+        + "("
+        + project.getProjectFilePath()
+        + ") - "
+        + moduleName;
   }
 }
