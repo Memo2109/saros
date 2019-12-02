@@ -1,8 +1,7 @@
 package saros.session;
 
 public class UserPrivilege {
-	
-	public enum Keys {
+  public enum Keys {
     SESSION_ADMINISTER,
     SESSION_DELETE_DATA,
     SESSION_GRANT_PERMISSION,
@@ -15,41 +14,31 @@ public class UserPrivilege {
     SESSION_WRITE_ACCESS,
     CONFIGURE_SERVER
   }
+  private UserPrivilege.Keys key;
+  private boolean value = false; // defaults to false, no?
 
-	protected UserPrivilege.Keys key;
-	protected Boolean value = false; // defaults to false, no?
+  public UserPrivilege(UserPrivilege.Keys key, boolean value) {
+    this.key = key;
+    this.value = value;
+  }
 
-    public UserPrivilege(UserPrivilege.Keys key, Boolean value) {
-        this.key = key;
-        this.value = value;
-    }
-
-    public UserPrivilege() {
-        
-    }
+  @Override
+  public String toString() {
+    return this.key.toString() + " : " + getValue();
+  }
     
-    public String toString() {
-        return this.key.toString() + " : " + getValue();
-    }
-    
-    public void setKey(UserPrivilege.Keys key) {
-        this.key = key;
-    }
+  public void setKey(UserPrivilege.Keys key) {
+    this.key = key;
+  }
 
-    public UserPrivilege.Keys getKey() {
-        return this.key;
-    }
+  public UserPrivilege.Keys getKey() {
+    return this.key;
+  }
+  public void setValue(boolean value) {
+    this.value = value;
+  }
 
-    // null becomes false
-    public void setValue(Boolean value) {
-        if (value.compareTo(true) == 0) {
-            this.value = value;
-        } else if (value == null) {
-            this.value = new Boolean(false);
-        }
-    }
-
-    public Boolean getValue() {
-        return this.value;
-    }
+  public boolean getValue() {
+    return this.value;
+  }
 }

@@ -1,6 +1,7 @@
 package saros.session;
 
 import java.util.*;
+import java.util.concurrent.*;
 import saros.net.xmpp.JID;
 import saros.preferences.IPreferenceStore;
 import saros.preferences.PreferenceStore;
@@ -33,8 +34,34 @@ public class User {
   private final boolean isLocal;
   private final IPreferenceStore preferences;
 
-  @Deprecated
-  private volatile Permission permission = Permission.WRITE_ACCESS;
+  @Deprecated private volatile Permission permission = Permission.WRITE_ACCESS;
+
+  /* More flexible Permissions also known as Privilege */
+  private volatile ConcurrentMap<UserPrivilege.Keys, UserPrivilege> privileges;
+
+  public synchronized ConcurrentMap<UserPrivilege.Keys, UserPrivilege> getPrivileges() {
+    return this.privileges;
+  }
+
+  public synchronized void setPrivileges(ConcurrentMap<UserPrivilege.Keys, UserPrivilege> privileges) {
+    this.privileges = privileges;
+  }
+
+  public synchronized void setPrivilege(UserPrivilege.Keys key, boolean value) {
+    UserPrivilege priv = new UserPrivilege(key, value);
+    this.addPrivilege(priv);
+  }
+
+  public synchronized void addPrivilege(UserPrivilege privilege) {
+    this.privileges.put(privilege.getKey(), privilege);
+  }
+  // get any privileges value or false
+  public synchronized boolean hasPrivilege(UserPrivilege.Keys privilege) {
+    if (this.privileges.containsKey(privilege)) {
+      return this.privileges.get(privilege).getValue();
+    }
+    return false;
+  }
 
   private volatile boolean isInSession;
 
@@ -48,7 +75,8 @@ public class User {
     } else {
       this.preferences = preferences;
     }
->>>>>>> upstream/master
+
+    this.privileges = new ConcurrentHashMap<UserPrivilege.Keys, UserPrivilege>();
   }
 
   /**
@@ -77,6 +105,10 @@ public class User {
   public Permission getPermission() {
     return permission;
   }
+
+
+
+
 
   /**
    * Utility method to determine whether this user has {@link User.Permission#WRITE_ACCESS}
