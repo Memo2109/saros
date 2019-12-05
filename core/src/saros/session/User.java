@@ -1,7 +1,9 @@
 package saros.session;
 
-import java.util.*;
-import java.util.concurrent.*;
+// import java.util.*;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import saros.net.xmpp.JID;
 import saros.preferences.IPreferenceStore;
 import saros.preferences.PreferenceStore;
@@ -43,7 +45,8 @@ public class User {
     return this.privileges;
   }
 
-  public synchronized void setPrivileges(ConcurrentMap<UserPrivilege.Keys, UserPrivilege> privileges) {
+  public synchronized void setPrivileges(
+      ConcurrentMap<UserPrivilege.Keys, UserPrivilege> privileges) {
     this.privileges = privileges;
   }
 
@@ -105,10 +108,6 @@ public class User {
   public Permission getPermission() {
     return permission;
   }
-
-
-
-
 
   /**
    * Utility method to determine whether this user has {@link User.Permission#WRITE_ACCESS}
