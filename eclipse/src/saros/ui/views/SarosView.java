@@ -43,15 +43,15 @@ import org.eclipse.ui.IWorkbenchPartReference;
 import org.eclipse.ui.part.ViewPart;
 import saros.SarosPluginContext;
 import saros.annotations.Component;
+import saros.communication.InfoManager;
 import saros.editor.EditorManager;
-import saros.net.ResourceFeature;
 import saros.net.xmpp.JID;
 import saros.net.xmpp.contact.ContactStatus.Type;
 import saros.net.xmpp.contact.IContactsUpdate;
 import saros.net.xmpp.contact.XMPPContact;
 import saros.net.xmpp.contact.XMPPContactsService;
-import saros.net.xmpp.roster.RosterTracker;
 import saros.preferences.EclipsePreferenceConstants;
+import saros.preferences.PreferenceConstants;
 import saros.repackaged.picocontainer.annotations.Inject;
 import saros.session.ISarosSession;
 import saros.session.ISarosSessionManager;
@@ -112,7 +112,7 @@ import saros.util.CoreUtils;
 @Component(module = "ui")
 public class SarosView extends ViewPart {
 
-  private static final Logger LOG = Logger.getLogger(SarosView.class);
+  private static final Logger log = Logger.getLogger(SarosView.class);
 
   public static final String ID = "saros.ui.views.SarosView";
 
@@ -232,9 +232,9 @@ public class SarosView extends ViewPart {
 
   @Inject protected EditorManager editorManager;
 
-  @Inject protected RosterTracker rosterTracker;
-
   @Inject private XMPPContactsService contactsService;
+
+  @Inject private InfoManager infoManager;
 
   private static volatile boolean showBalloonNotifications;
   private volatile boolean playAvailableSound;
@@ -376,7 +376,7 @@ public class SarosView extends ViewPart {
         };
     baseSashForm.setWeights(weights);
 
-    chatRooms = new ChatRoomsComposite(rightComposite, SWT.NONE, rosterTracker);
+    chatRooms = new ChatRoomsComposite(rightComposite, SWT.NONE);
 
     notificationAnchor = new Composite(parent, SWT.NONE);
 
@@ -481,7 +481,9 @@ public class SarosView extends ViewPart {
 
             // TODO: Currently only Saros/S is known to have a working JoinSessionRequestHandler,
             //       remove this once the situation changes / change this to it's own feature.
-            if (contact.hasFeatureSupport(ResourceFeature.SAROS_SERVER)) {
+            if (infoManager
+                .getRemoteInfo(contact, PreferenceConstants.SERVER_SUPPORT)
+                .isPresent()) {
               manager.add(getAction(RequestSessionInviteAction.ACTION_ID));
               manager.add(new Separator());
             }
@@ -614,7 +616,7 @@ public class SarosView extends ViewPart {
     if (!showBalloonNotifications) return;
 
     SWTUtils.runSafeSWTAsync(
-        LOG,
+        log,
         new Runnable() {
           @Override
           public void run() {
@@ -681,7 +683,7 @@ public class SarosView extends ViewPart {
       case LOCAL_USER_LEFT:
         return;
       default:
-        LOG.warn("no UI notification available for stop reason: " + reason);
+        log.warn("no UI notification available for stop reason: " + reason);
         return;
     }
 
@@ -694,7 +696,7 @@ public class SarosView extends ViewPart {
    */
   public static void clearNotifications() {
     SWTUtils.runSafeSWTAsync(
-        LOG,
+        log,
         new Runnable() {
           @Override
           public void run() {

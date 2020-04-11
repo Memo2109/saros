@@ -15,7 +15,6 @@ import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.ui.UIUtil;
 import java.awt.Dimension;
 import java.awt.Window;
 import java.io.FileNotFoundException;
@@ -34,13 +33,13 @@ import saros.filesystem.IChecksumCache;
 import saros.filesystem.IProject;
 import saros.intellij.context.SharedIDEContext;
 import saros.intellij.editor.DocumentAPI;
-import saros.intellij.filesystem.Filesystem;
 import saros.intellij.filesystem.IntelliJProjectImpl;
 import saros.intellij.negotiation.ModuleConfiguration;
 import saros.intellij.negotiation.ModuleConfigurationInitializer;
+import saros.intellij.runtime.FilesystemRunner;
 import saros.intellij.ui.Messages;
 import saros.intellij.ui.util.NotificationPanel;
-import saros.intellij.ui.widgets.progress.ProgessMonitorAdapter;
+import saros.intellij.ui.widgets.progress.ProgressMonitorAdapter;
 import saros.intellij.ui.wizards.pages.HeaderPanel;
 import saros.intellij.ui.wizards.pages.PageActionListener;
 import saros.intellij.ui.wizards.pages.TextAreaPage;
@@ -79,7 +78,7 @@ import saros.util.ThreadUtils;
 
 //  FIXME: Add facility for more than one project.
 public class AddProjectToSessionWizard extends Wizard {
-  private static final Logger LOG = Logger.getLogger(AddProjectToSessionWizard.class);
+  private static final Logger log = Logger.getLogger(AddProjectToSessionWizard.class);
 
   public static final String SELECT_MODULE_REPRESENTATION_PAGE_ID = "selectModuleRepresentation";
   public static final String FILE_LIST_PAGE_ID = "fileListPage";
@@ -193,7 +192,7 @@ public class AddProjectToSessionWizard extends Wizard {
           String moduleType = moduleConfiguration.getModuleType();
 
           if (moduleType == null) {
-            LOG.error("Aborted module creation as no module type was received.");
+            log.error("Aborted module creation as no module type was received.");
 
             cancelNegotiation("Failed to create shared module");
 
@@ -210,7 +209,7 @@ public class AddProjectToSessionWizard extends Wizard {
             module = createBaseModule(moduleName, moduleType, moduleBasePath, project);
 
           } catch (IOException e) {
-            LOG.error("Could not create the shared module " + moduleName + ".", e);
+            log.error("Could not create the shared module " + moduleName + ".", e);
 
             cancelNegotiation("Failed to create shared module");
 
@@ -228,7 +227,7 @@ public class AddProjectToSessionWizard extends Wizard {
             return;
 
           } catch (ModuleWithNameAlreadyExists e) {
-            LOG.warn("Could not create the shared module " + moduleName + ".", e);
+            log.warn("Could not create the shared module " + moduleName + ".", e);
 
             cancelNegotiation("Failed to create shared module");
 
@@ -267,7 +266,7 @@ public class AddProjectToSessionWizard extends Wizard {
             sharedProject = new IntelliJProjectImpl(existingModule);
 
           } catch (IllegalArgumentException e) {
-            LOG.debug("No session is started as an invalid module was chosen");
+            log.debug("No session is started as an invalid module was chosen");
 
             cancelNegotiation("Invalid module chosen by client");
 
@@ -314,7 +313,7 @@ public class AddProjectToSessionWizard extends Wizard {
           ISarosSession session = sessionManager.getSession();
 
           if (session == null) {
-            LOG.error("Encountered project negotiation without running session");
+            log.error("Encountered project negotiation without running session");
 
             NotificationPanel.showError(
                 Messages.AddProjectToSessionWizard_no_session_message,
@@ -327,7 +326,7 @@ public class AddProjectToSessionWizard extends Wizard {
               session.getComponent(ModuleConfigurationInitializer.class);
 
           if (moduleConfigurationInitializer == null) {
-            LOG.error(
+            log.error(
                 "Could not obtain class from session context - "
                     + ModuleConfigurationInitializer.class.getSimpleName());
 
@@ -350,9 +349,9 @@ public class AddProjectToSessionWizard extends Wizard {
          */
         private void noisyCancel(@NotNull String reason, @Nullable Throwable throwable) {
           if (throwable != null) {
-            LOG.error("Encountered error reading module selection results: " + reason, throwable);
+            log.error("Encountered error reading module selection results: " + reason, throwable);
           } else {
-            LOG.error("Encountered error reading module selection results: " + reason);
+            log.error("Encountered error reading module selection results: " + reason);
           }
 
           NotificationPanel.showError(
@@ -382,7 +381,7 @@ public class AddProjectToSessionWizard extends Wizard {
    */
   private void cancelNegotiation(@Nullable final String reason) {
     ThreadUtils.runSafeAsync(
-        LOG,
+        log,
         new Runnable() {
 
           @Override
@@ -429,7 +428,7 @@ public class AddProjectToSessionWizard extends Wizard {
     }
 
     Module module =
-        Filesystem.runWriteAction(
+        FilesystemRunner.runWriteAction(
             new ThrowableComputable<Module, IOException>() {
 
               @Override
@@ -575,22 +574,16 @@ public class AddProjectToSessionWizard extends Wizard {
             + (type.equals(NegotiationTools.CancelLocation.LOCAL)
                 ? "locally "
                 : "remotely by " + peer);
-    UIUtil.invokeLaterIfNeeded(
-        new Runnable() {
-          @Override
-          public void run() {
 
-            /*
-             *  if we already triggered the negotiation the message will
-             *  be displayed in the trigger logic, so do not popup another dialog here
-             */
-            if (!triggered)
-              NotificationPanel.showInformation(
-                  message + (errorMsg != null ? "\n\n" + errorMsg : ""), message);
+    /*
+     *  if we already triggered the negotiation the message will
+     *  be displayed in the trigger logic, so do not popup another dialog here
+     */
+    if (!triggered)
+      NotificationPanel.showInformation(
+          message + (errorMsg != null ? "\n\n" + errorMsg : ""), message);
 
-            close();
-          }
-        });
+    close();
   }
 
   /**
@@ -608,31 +601,32 @@ public class AddProjectToSessionWizard extends Wizard {
     ProgressManager.getInstance()
         .run(
             new Task.Backgroundable(
-                project, "Sharing project...", true, PerformInBackgroundOption.DEAF) {
+                project,
+                Messages.AddProjectToSessionWizard_negotiation_progress_title,
+                true,
+                PerformInBackgroundOption.DEAF) {
 
               @Override
-              public void run(ProgressIndicator indicator) {
+              public void run(@NotNull ProgressIndicator indicator) {
                 final ProjectNegotiation.Status status =
-                    negotiation.run(localProjects, new ProgessMonitorAdapter(indicator));
+                    negotiation.run(localProjects, new ProgressMonitorAdapter(indicator));
 
                 indicator.stop();
 
-                UIUtil.invokeLaterIfNeeded(
-                    new Runnable() {
-                      @Override
-                      public void run() {
-                        if (status == ProjectNegotiation.Status.ERROR) {
-                          NotificationPanel.showError(
-                              "Error during project negotiation",
-                              "The project could not be shared: " + negotiation.getErrorMessage());
-                        } else if (status == ProjectNegotiation.Status.OK) {
-                          NotificationPanel.showInformation(
-                              "Project shared", "Project successfully shared");
-                        } else
-                          NotificationPanel.showError(
-                              "Project negotiation aborted", "Project negotiation was canceled");
-                      }
-                    });
+                if (status == ProjectNegotiation.Status.ERROR) {
+                  NotificationPanel.showError(
+                      MessageFormat.format(
+                          Messages.AddProjectToSessionWizard_negotiation_error_message,
+                          negotiation.getErrorMessage()),
+                      Messages.AddProjectToSessionWizard_negotiation_error_title);
+                } else if (status == ProjectNegotiation.Status.OK) {
+                  NotificationPanel.showInformation(
+                      Messages.AddProjectToSessionWizard_negotiation_successful_message,
+                      Messages.AddProjectToSessionWizard_negotiation_successful_title);
+                } else
+                  NotificationPanel.showError(
+                      Messages.AddProjectToSessionWizard_negotiation_aborted_message,
+                      Messages.AddProjectToSessionWizard_negotiation_aborted_title);
               }
             });
 
@@ -747,16 +741,13 @@ public class AddProjectToSessionWizard extends Wizard {
 
         final ProjectNegotiationData data = negotiation.getProjectNegotiationData(projectID);
 
-        if (data.isPartial()) throw new IllegalStateException("partial sharing is not supported");
-
         FileList localFileList =
             FileListFactory.createFileList(
                 project,
-                null,
                 checksumCache,
                 new SubProgressMonitor(monitor, 1, SubProgressMonitor.SUPPRESS_SETTASKNAME));
 
-        final FileListDiff diff = FileListDiff.diff(localFileList, data.getFileList(), false);
+        final FileListDiff diff = FileListDiff.diff(localFileList, data.getFileList());
 
         if (!diff.getRemovedFolders().isEmpty()
             || !diff.getRemovedFiles().isEmpty()
@@ -768,7 +759,7 @@ public class AddProjectToSessionWizard extends Wizard {
         }
 
       } catch (IOException e) {
-        LOG.warn("could not refresh project: " + project, e);
+        log.warn("could not refresh project: " + project, e);
       }
     }
     return modifiedResources;

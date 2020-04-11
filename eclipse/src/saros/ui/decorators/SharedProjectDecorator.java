@@ -47,7 +47,7 @@ import saros.ui.util.SWTUtils;
 @Component(module = "eclipse")
 public final class SharedProjectDecorator implements ILightweightLabelDecorator {
 
-  private static final Logger LOG = Logger.getLogger(SharedProjectDecorator.class);
+  private static final Logger log = Logger.getLogger(SharedProjectDecorator.class);
 
   private static final ImageDescriptor PROJECT_DESCRIPTOR =
       ImageManager.getImageDescriptor("icons/ovr16/shared.png"); // NON-NLS-1
@@ -72,7 +72,7 @@ public final class SharedProjectDecorator implements ILightweightLabelDecorator 
         public void sessionEnded(ISarosSession session, SessionEndReason reason) {
           session.removeListener(sessionListener);
           SharedProjectDecorator.this.session = null;
-          LOG.debug("clearing project decoration for all shared projects");
+          log.debug("clearing project decoration for all shared projects");
           updateDecoratorsAsync(null); // update all labels
         }
       };
@@ -81,7 +81,7 @@ public final class SharedProjectDecorator implements ILightweightLabelDecorator 
       new ISessionListener() {
         @Override
         public void resourcesAdded(IProject project) {
-          LOG.debug("updating project decoration for all shared projects");
+          log.debug("updating project decoration for all shared projects");
           updateDecoratorsAsync(null); // update all labels
         }
       };
@@ -111,13 +111,7 @@ public final class SharedProjectDecorator implements ILightweightLabelDecorator 
     decoration.addOverlay(SharedProjectDecorator.PROJECT_DESCRIPTOR, IDecoration.TOP_LEFT);
 
     if (resource.getType() == IResource.PROJECT) {
-      boolean isCompletelyShared =
-          currentSession.isCompletelyShared(ResourceAdapterFactory.create(resource.getProject()));
-
-      decoration.addSuffix(
-          isCompletelyShared
-              ? Messages.SharedProjectDecorator_shared
-              : Messages.SharedProjectDecorator_shared_partial);
+      decoration.addSuffix(Messages.SharedProjectDecorator_shared);
     }
   }
 
@@ -138,7 +132,7 @@ public final class SharedProjectDecorator implements ILightweightLabelDecorator 
 
   private void updateDecoratorsAsync(final IResource[] resources) {
     SWTUtils.runSafeSWTAsync(
-        LOG,
+        log,
         new Runnable() {
           @Override
           public void run() {

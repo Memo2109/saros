@@ -4,11 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Consumer;
 import org.apache.log4j.Logger;
 import saros.activities.ChecksumActivity;
-import saros.activities.FileActivity;
 import saros.activities.IActivity;
-import saros.activities.IActivityReceiver;
 import saros.activities.JupiterActivity;
 import saros.activities.QueueItem;
 import saros.activities.SPath;
@@ -29,11 +28,13 @@ import saros.session.User;
  */
 public class ConcurrentDocumentServer implements Startable {
 
-  private static Logger LOG = Logger.getLogger(ConcurrentDocumentServer.class);
+  private static Logger log = Logger.getLogger(ConcurrentDocumentServer.class);
 
   private final ISarosSession sarosSession;
 
   private final JupiterServer server;
+
+  private final ResourceActivityFilter resourceActivityFilter;
 
   /** {@link ISessionListener} for updating Jupiter documents on the host. */
   private final ISessionListener sessionListener =
@@ -53,41 +54,45 @@ public class ConcurrentDocumentServer implements Startable {
   public ConcurrentDocumentServer(final ISarosSession sarosSession) {
     this.sarosSession = sarosSession;
     this.server = new JupiterServer(sarosSession);
+
+    Consumer<SPath> deletedFileHandler =
+        resource -> {
+          log.debug("Resetting jupiter server for " + resource);
+          server.removePath(resource);
+        };
+
+    this.resourceActivityFilter = new ResourceActivityFilter(sarosSession, deletedFileHandler);
   }
 
   @Override
   public void start() {
     sarosSession.addListener(sessionListener);
+    resourceActivityFilter.initialize();
   }
 
   @Override
   public void stop() {
     sarosSession.removeListener(sessionListener);
+    resourceActivityFilter.dispose();
   }
 
   /**
-   * Dispatched the activity to the internal ActivityReceiver. The ActivityReceiver will remove
-   * FileDocuments when the file has been deleted.
+   * Calls {@link ResourceActivityFilter#handleFileDeletion(IActivity)} and {@link
+   * ResourceActivityFilter#handleFileCreation(IActivity)} with the given activity.
    *
-   * @param activity Activity to be dispatched
+   * @param activity the activity to handle
    */
-  public void checkFileDeleted(final IActivity activity) {
-    activity.dispatch(hostReceiver);
+  public void handleResourceChange(IActivity activity) {
+    resourceActivityFilter.handleFileDeletion(activity);
+    resourceActivityFilter.handleFileCreation(activity);
   }
-
-  private final IActivityReceiver hostReceiver =
-      new IActivityReceiver() {
-        @Override
-        public void receive(final FileActivity activity) {
-          if (activity.getType() == FileActivity.Type.REMOVED) {
-            server.removePath(activity.getPath());
-          }
-        }
-      };
 
   /**
    * Transforms the given activities on the server side and returns a list of QueueItems containing
    * the transformed activities and there receivers.
+   *
+   * <p>Drops activities that are reported as filtered out by {@link
+   * ResourceActivityFilter#isFiltered(IActivity)}.
    *
    * @host
    * @sarosThread Must be executed in the Saros dispatch thread.
@@ -104,9 +109,13 @@ public class ConcurrentDocumentServer implements Startable {
 
     final List<QueueItem> result = new ArrayList<QueueItem>();
 
-    try {
-      activity.dispatch(hostReceiver);
+    if (resourceActivityFilter.isFiltered(activity)) {
+      log.debug("Ignored activity for already deleted resource: " + activity);
 
+      return result;
+    }
+
+    try {
       if (activity instanceof JupiterActivity) {
         result.addAll(receive((JupiterActivity) activity));
 
@@ -114,7 +123,7 @@ public class ConcurrentDocumentServer implements Startable {
         result.addAll(withTimestamp((ChecksumActivity) activity));
       }
     } catch (Exception e) {
-      LOG.error("failed to transform jupiter activity: " + activity, e);
+      log.error("failed to transform jupiter activity: " + activity, e);
     }
 
     return result;
@@ -134,7 +143,7 @@ public class ConcurrentDocumentServer implements Startable {
     try {
       outgoing = server.transform(activity);
     } catch (TransformationException e) {
-      LOG.error("failed to transform jupiter activity: " + activity, e);
+      log.error("failed to transform jupiter activity: " + activity, e);
       // TODO this should trigger a consistency check
       return result;
     }
@@ -160,7 +169,7 @@ public class ConcurrentDocumentServer implements Startable {
 
     assert sarosSession.isHost();
 
-    LOG.debug("resetting jupiter server for user: " + user + ", path: " + path);
+    log.debug("resetting jupiter server for user: " + user + ", path: " + path);
 
     server.reset(path, user);
   }
@@ -176,7 +185,7 @@ public class ConcurrentDocumentServer implements Startable {
     try {
       outgoing = server.withTimestamp(activity);
     } catch (TransformationException e) {
-      LOG.error("failed to transform checksum activity: " + activity, e);
+      log.error("failed to transform checksum activity: " + activity, e);
       // TODO this should trigger a consistency check
       return result;
     }

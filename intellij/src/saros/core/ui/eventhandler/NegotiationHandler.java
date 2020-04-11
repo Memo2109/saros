@@ -1,6 +1,5 @@
 package saros.core.ui.eventhandler;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.WindowManager;
@@ -10,6 +9,7 @@ import org.apache.log4j.Logger;
 import saros.core.monitoring.IStatus;
 import saros.core.monitoring.Status;
 import saros.intellij.SarosComponent;
+import saros.intellij.runtime.EDTExecutor;
 import saros.intellij.runtime.UIMonitoredJob;
 import saros.intellij.ui.Messages;
 import saros.intellij.ui.util.NotificationPanel;
@@ -34,7 +34,7 @@ import saros.session.ISarosSessionManager;
  */
 public class NegotiationHandler implements INegotiationHandler {
 
-  private static final Logger LOG = Logger.getLogger(NegotiationHandler.class);
+  private static final Logger log = Logger.getLogger(NegotiationHandler.class);
 
   private final ISarosSessionManager sessionManager;
   private final UIProjectUtils projectUtils;
@@ -78,30 +78,28 @@ public class NegotiationHandler implements INegotiationHandler {
   private void showIncomingInvitationUI(
       Project project, final IncomingSessionNegotiation negotiation) {
 
-    ApplicationManager.getApplication()
-        .invokeLater(
-            () -> {
-              JoinSessionWizard wizard =
-                  new JoinSessionWizard(project, getWindow(project), negotiation);
-              wizard.setModal(true);
-              wizard.open();
-            },
-            ModalityState.defaultModalityState());
+    EDTExecutor.invokeLater(
+        () -> {
+          JoinSessionWizard wizard =
+              new JoinSessionWizard(project, getWindow(project), negotiation);
+          wizard.setModal(true);
+          wizard.open();
+        },
+        ModalityState.defaultModalityState());
   }
 
   private void showIncomingProjectUI(
       Project project, final AbstractIncomingProjectNegotiation negotiation) {
 
-    ApplicationManager.getApplication()
-        .invokeLater(
-            () -> {
-              AddProjectToSessionWizard wizard =
-                  new AddProjectToSessionWizard(project, getWindow(project), negotiation);
+    EDTExecutor.invokeLater(
+        () -> {
+          AddProjectToSessionWizard wizard =
+              new AddProjectToSessionWizard(project, getWindow(project), negotiation);
 
-              wizard.setModal(false);
-              wizard.open();
-            },
-            ModalityState.defaultModalityState());
+          wizard.setModal(false);
+          wizard.open();
+        },
+        ModalityState.defaultModalityState());
   }
 
   private Window getWindow(Project project) {
@@ -173,7 +171,7 @@ public class NegotiationHandler implements INegotiationHandler {
         }
 
       } catch (Exception e) {
-        LOG.error("This exception is not expected here: ", e);
+        log.error("This exception is not expected here: ", e);
         return new Status(IStatus.ERROR, SarosComponent.PLUGIN_ID, e.getMessage(), e);
       }
 
@@ -215,27 +213,23 @@ public class NegotiationHandler implements INegotiationHandler {
                 MessageFormat.format(
                     Messages.NegotiationHandler_project_sharing_canceled_message, peerName);
 
-            ApplicationManager.getApplication()
-                .invokeLater(
-                    () ->
-                        NotificationPanel.showInformation(
-                            message, "Project sharing canceled remotely"));
+            NotificationPanel.showInformation(message, "Project sharing canceled remotely");
 
             return new Status(IStatus.CANCEL, SarosComponent.PLUGIN_ID, message);
 
           case REMOTE_ERROR:
             message =
                 MessageFormat.format(
-                    Messages.NegotiationHandler_sharing_project_canceled_remotely_title,
+                    Messages.NegotiationHandler_sharing_project_canceled_remotely_message,
                     peerName,
                     negotiation.getErrorMessage());
             NotificationPanel.showError(
-                message, Messages.NegotiationHandler_sharing_project_canceled_remotely_message);
+                message, Messages.NegotiationHandler_sharing_project_canceled_remotely_title);
 
             return new Status(IStatus.ERROR, SarosComponent.PLUGIN_ID, message);
         }
       } catch (Exception e) {
-        LOG.error("This exception is not expected here: ", e);
+        log.error("This exception is not expected here: ", e);
         return new Status(IStatus.ERROR, SarosComponent.PLUGIN_ID, e.getMessage(), e);
       }
 

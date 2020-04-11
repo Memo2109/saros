@@ -1,7 +1,5 @@
 package saros.intellij.editor.annotations;
 
-import com.intellij.openapi.application.Application;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
@@ -9,16 +7,17 @@ import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.util.Computable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import saros.filesystem.IFile;
 import saros.intellij.editor.colorstorage.ColorManager;
 import saros.intellij.editor.colorstorage.ColorManager.ColorKeys;
+import saros.intellij.runtime.EDTExecutor;
 import saros.repackaged.picocontainer.Disposable;
 import saros.session.User;
 
@@ -26,7 +25,7 @@ import saros.session.User;
 // TODO move local selections affected by changes while editor is closed; see issue #116
 public class AnnotationManager implements Disposable {
 
-  private static final Logger LOG = Logger.getLogger(AnnotationManager.class);
+  private static final Logger log = Logger.getLogger(AnnotationManager.class);
 
   /** Enum containing the possible annotation types. */
   public enum AnnotationType {
@@ -40,8 +39,6 @@ public class AnnotationManager implements Disposable {
   private final AnnotationStore<SelectionAnnotation> selectionAnnotationStore;
   private final AnnotationQueue<ContributionAnnotation> contributionAnnotationQueue;
 
-  private final Application application;
-
   @Override
   public void dispose() {
     removeAllAnnotations();
@@ -50,8 +47,6 @@ public class AnnotationManager implements Disposable {
   public AnnotationManager() {
     this.selectionAnnotationStore = new AnnotationStore<>();
     this.contributionAnnotationQueue = new AnnotationQueue<>(MAX_CONTRIBUTION_ANNOTATIONS);
-
-    this.application = ApplicationManager.getApplication();
   }
 
   /**
@@ -74,10 +69,7 @@ public class AnnotationManager implements Disposable {
   public void addSelectionAnnotation(
       @NotNull User user, @NotNull IFile file, int start, int end, @Nullable Editor editor) {
 
-    List<SelectionAnnotation> currentSelectionAnnotation =
-        selectionAnnotationStore.removeAnnotations(user, file);
-
-    currentSelectionAnnotation.forEach(this::removeRangeHighlighter);
+    removeSelectionAnnotation(user, file);
 
     checkRange(start, end);
 
@@ -105,6 +97,19 @@ public class AnnotationManager implements Disposable {
         new SelectionAnnotation(user, file, editor, Collections.singletonList(annotationRange));
 
     selectionAnnotationStore.addAnnotation(selectionAnnotation);
+  }
+
+  /**
+   * Removes the current selection annotation for the given file and user combination if present.
+   *
+   * @param user the user the annotation belongs to
+   * @param file the file the annotation belongs to
+   */
+  public void removeSelectionAnnotation(@NotNull User user, @NotNull IFile file) {
+    List<SelectionAnnotation> currentSelectionAnnotation =
+        selectionAnnotationStore.removeAnnotations(user, file);
+
+    currentSelectionAnnotation.forEach(this::removeRangeHighlighter);
   }
 
   /**
@@ -716,7 +721,7 @@ public class AnnotationManager implements Disposable {
     int documentLength = editor.getDocument().getTextLength();
 
     if (documentLength < end) {
-      LOG.warn(
+      log.warn(
           "The creation of a range highlighter with the bounds ("
               + start
               + ", "
@@ -751,11 +756,10 @@ public class AnnotationManager implements Disposable {
 
     // Resolve the correct text attributes based on the currently configured IDE scheme.
     final TextAttributes textAttr = editor.getColorsScheme().getAttributes(highlightColorKey);
-    final AtomicReference<RangeHighlighter> result = new AtomicReference<>();
 
-    application.invokeAndWait(
-        () ->
-            result.set(
+    return EDTExecutor.invokeAndWait(
+        (Computable<RangeHighlighter>)
+            () ->
                 editor
                     .getMarkupModel()
                     .addRangeHighlighter(
@@ -763,10 +767,8 @@ public class AnnotationManager implements Disposable {
                         end,
                         HighlighterLayer.LAST,
                         textAttr,
-                        HighlighterTargetArea.EXACT_RANGE)),
+                        HighlighterTargetArea.EXACT_RANGE),
         ModalityState.defaultModalityState());
-
-    return result.get();
   }
 
   /**
@@ -794,7 +796,7 @@ public class AnnotationManager implements Disposable {
             return;
           }
 
-          application.invokeAndWait(
+          EDTExecutor.invokeAndWait(
               () -> editor.getMarkupModel().removeHighlighter(rangeHighlighter),
               ModalityState.defaultModalityState());
         });

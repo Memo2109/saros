@@ -461,6 +461,7 @@ public abstract class BaseResourceSelectionComposite extends ViewerComposite<Che
 
     SarosPluginContext.initComponent(this);
     checkboxTreeViewer.addFilter(sharedProjectsFilter);
+    checkboxTreeViewer.addFilter(nonProjectFilter);
   }
 
   @Inject protected ISarosSessionManager sessionManager;
@@ -475,11 +476,26 @@ public abstract class BaseResourceSelectionComposite extends ViewerComposite<Che
             if (element instanceof IFile || element instanceof IFolder) {
               return !sarosSession.isShared(ResourceAdapterFactory.create((IResource) element));
             } else if (element instanceof IProject) {
-              return !(sarosSession.isCompletelyShared(
-                  ResourceAdapterFactory.create((IProject) element)));
+              return !(sarosSession.isShared(ResourceAdapterFactory.create((IProject) element)));
             }
           }
           return true;
+        }
+      };
+
+  /**
+   * Filter out any non-project resources.
+   *
+   * <p>Dirty workaround to restrict the menu to project elements for the migration period where
+   * partial sharing was removed but the reference point logic (and the subsequent rework of the
+   * sharing UI) has not been introduced yet.
+   */
+  // TODO remove one reference point sharing has been introduced
+  protected ViewerFilter nonProjectFilter =
+      new ViewerFilter() {
+        @Override
+        public boolean select(Viewer viewer, Object parentElement, Object element) {
+          return element instanceof IProject;
         }
       };
 

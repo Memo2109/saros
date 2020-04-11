@@ -1,6 +1,5 @@
 package saros.intellij.editor;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -10,6 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleFileIndex;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import java.util.HashMap;
@@ -34,6 +34,7 @@ import saros.editor.SharedEditorListenerDispatch;
 import saros.editor.remote.EditorState;
 import saros.editor.remote.UserEditorStateManager;
 import saros.editor.text.LineRange;
+import saros.editor.text.TextPosition;
 import saros.editor.text.TextSelection;
 import saros.filesystem.IFile;
 import saros.filesystem.IProject;
@@ -41,9 +42,10 @@ import saros.intellij.context.SharedIDEContext;
 import saros.intellij.editor.annotations.AnnotationManager;
 import saros.intellij.eventhandler.IProjectEventHandler.ProjectEventHandlerType;
 import saros.intellij.eventhandler.editor.editorstate.ViewportAdjustmentExecutor;
-import saros.intellij.filesystem.Filesystem;
 import saros.intellij.filesystem.IntelliJProjectImpl;
 import saros.intellij.filesystem.VirtualFileConverter;
+import saros.intellij.runtime.EDTExecutor;
+import saros.intellij.runtime.FilesystemRunner;
 import saros.observables.FileReplacementInProgressObservable;
 import saros.session.AbstractActivityConsumer;
 import saros.session.AbstractActivityProducer;
@@ -60,7 +62,7 @@ import saros.synchronize.Blockable;
 /** IntelliJ implementation of the {@link IEditorManager} interface. */
 public class EditorManager extends AbstractActivityProducer implements IEditorManager {
 
-  private static final Logger LOG = Logger.getLogger(EditorManager.class);
+  private static final Logger log = Logger.getLogger(EditorManager.class);
 
   private final Blockable stopManagerListener =
       new Blockable() {
@@ -101,7 +103,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
             return;
           }
 
-          LOG.debug(path + " editor activity received " + editorActivity);
+          log.debug(path + " editor activity received " + editorActivity);
 
           final User user = editorActivity.getSource();
 
@@ -117,7 +119,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
               localEditorHandler.saveDocument(path);
               break;
             default:
-              LOG.warn("Unexpected type: " + editorActivity.getType());
+              log.warn("Unexpected type: " + editorActivity.getType());
           }
         }
 
@@ -129,15 +131,47 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
             return;
           }
 
-          LOG.debug(path + " text edit activity received " + editorActivity);
+          log.debug(path + " text edit activity received " + editorActivity);
 
           User user = editorActivity.getSource();
 
           Operation operation = editorActivity.toOperation();
 
-          localEditorManipulator.applyTextOperations(path, operation);
+          Editor calculationEditor = editorPool.getEditor(path);
 
-          adjustAnnotationsAfterEdit(user, path.getFile(), editorPool.getEditor(path), operation);
+          if (calculationEditor == null) {
+
+            VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
+
+            if (virtualFile == null) {
+              log.warn(
+                  "Could not apply selection "
+                      + editorActivity
+                      + " as no virtual file could be obtained for resource "
+                      + path);
+
+              return;
+            }
+
+            Document document = DocumentAPI.getDocument(virtualFile);
+
+            if (document == null) {
+              log.warn(
+                  "Could not apply selection "
+                      + editorActivity
+                      + " as no document could be obtained for resource "
+                      + virtualFile);
+
+              return;
+            }
+
+            calculationEditor = backgroundEditorPool.getBackgroundEditor(path, document);
+          }
+
+          localEditorManipulator.applyTextOperations(path, operation, calculationEditor);
+
+          adjustAnnotationsAfterEdit(
+              user, path.getFile(), editorPool.getEditor(path), operation, calculationEditor);
 
           editorListenerDispatch.textEdited(editorActivity);
         }
@@ -160,19 +194,25 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
          * @param file the file for the given operation
          * @param editor the editor for the given file
          * @param operations the received operation
+         * @param calculationEditor an editor for the file; this might be a background editor (see
+         *     {@link BackgroundEditorPool}), so it must not be used for annotation purposes
          */
         private void adjustAnnotationsAfterEdit(
             @NotNull User user,
             @NotNull IFile file,
             @Nullable Editor editor,
-            @NotNull Operation operations) {
+            @NotNull Operation operations,
+            @NotNull Editor calculationEditor) {
 
           operations
               .getTextOperations()
               .forEach(
                   textOperation -> {
-                    int start = textOperation.getPosition();
-                    int end = textOperation.getPosition() + textOperation.getTextLength();
+                    TextPosition startPosition = textOperation.getStartPosition();
+                    TextPosition endPosition = textOperation.getEndPosition();
+
+                    int start = EditorAPI.calculateOffset(calculationEditor, startPosition);
+                    int end = EditorAPI.calculateOffset(calculationEditor, endPosition);
 
                     if (textOperation instanceof InsertOperation) {
                       if (editor == null) {
@@ -198,15 +238,56 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
 
           IFile file = path.getFile();
 
-          LOG.debug("Text selection activity received: " + path + ", " + selection);
+          log.debug("Text selection activity received: " + path + ", " + selection);
 
           User user = selection.getSource();
-          int start = selection.getOffset();
-          int end = start + selection.getLength();
 
           Editor editor = editorPool.getEditor(path);
 
-          annotationManager.addSelectionAnnotation(user, file, start, end, editor);
+          // Editor used for position calculation
+          Editor calcEditor = editor;
+
+          if (calcEditor == null) {
+            VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
+
+            if (virtualFile == null) {
+              log.warn(
+                  "Could not apply selection "
+                      + selection
+                      + " as no virtual file could be obtained for resource "
+                      + path);
+
+              return;
+            }
+
+            Document document = DocumentAPI.getDocument(virtualFile);
+
+            if (document == null) {
+              log.warn(
+                  "Could not apply selection "
+                      + selection
+                      + " as no document could be obtained for resource "
+                      + virtualFile);
+
+              return;
+            }
+
+            calcEditor = backgroundEditorPool.getBackgroundEditor(path, document);
+          }
+
+          TextSelection textSelection = selection.getSelection();
+
+          if (textSelection.isEmpty()) {
+            annotationManager.removeSelectionAnnotation(user, file);
+
+          } else {
+            Pair<Integer, Integer> offsets = EditorAPI.calculateOffsets(calcEditor, textSelection);
+
+            int start = offsets.first;
+            int end = offsets.second;
+
+            annotationManager.addSelectionAnnotation(user, file, start, end, editor);
+          }
 
           editorListenerDispatch.textSelectionChanged(selection);
         }
@@ -332,7 +413,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
     VirtualFile fileForEditor = DocumentAPI.getVirtualFile(editor.getDocument());
 
     if (fileForEditor == null) {
-      LOG.warn(
+      log.warn(
           "Encountered editor without valid virtual file representation - path held in editor pool: "
               + path);
 
@@ -340,7 +421,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
     }
 
     if (!visibleFilePaths.contains(fileForEditor.getPath())) {
-      LOG.debug(
+      log.debug(
           "Ignoring "
               + path
               + " while sending viewport awareness information as the editor is not currently visible.");
@@ -361,12 +442,9 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
   private void sendSelectionInformation(
       @NotNull User user, @NotNull SPath path, @NotNull Editor editor) {
 
-    Pair<Integer, Integer> localSelectionOffsets = EditorAPI.getLocalSelectionOffsets(editor);
-    int selectionStartOffset = localSelectionOffsets.first;
-    int selectionLength = localSelectionOffsets.second;
+    TextSelection selection = EditorAPI.getSelection(editor);
 
-    TextSelectionActivity setSelection =
-        new TextSelectionActivity(user, selectionStartOffset, selectionLength, path);
+    TextSelectionActivity setSelection = new TextSelectionActivity(user, selection, path);
 
     fireActivity(setSelection);
   }
@@ -396,7 +474,8 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
   }
 
   /**
-   * Adds all currently open editors belonging to the passed project to the pool of open editors.
+   * Adds all currently open text editors belonging to the passed project to the pool of open
+   * editors.
    *
    * @param project the added project
    */
@@ -408,7 +487,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
     Set<VirtualFile> openFiles = new HashSet<>();
 
     for (VirtualFile openFile : ProjectAPI.getOpenFiles(intellijProject)) {
-      if (Filesystem.runReadAction(() -> moduleFileIndex.isInContent(openFile))) {
+      if (FilesystemRunner.runReadAction(() -> moduleFileIndex.isInContent(openFile))) {
         openFiles.add(openFile);
       }
     }
@@ -430,14 +509,16 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
               "Could not create SPath for resource that is known to be shared: " + openFile);
 
         } else if (path.getResource().isIgnored()) {
-          LOG.debug("Skipping editor for ignored open file " + path);
+          log.debug("Skipping editor for ignored open file " + path);
 
           continue;
         }
 
         Editor editor = localEditorHandler.openEditor(openFile, project, false);
 
-        openFileMapping.put(path, editor);
+        if (editor != null) {
+          openFileMapping.put(path, editor);
+        }
       }
 
     } finally {
@@ -534,6 +615,11 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
         private void startSession() {
           assert editorPool.getEditors().isEmpty() : "EditorPool was not correctly reset!";
 
+          if (!backgroundEditorPool.isEmpty()) {
+            log.warn(
+                "BackgroundEditorPool already contains entries at session start! Possible memory leak.");
+          }
+
           session.getStopManager().addBlockable(stopManagerListener);
 
           hasWriteAccess = session.hasWriteAccess();
@@ -553,6 +639,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
           // again
           unlockAllEditors();
           editorPool.clear();
+          backgroundEditorPool.clear();
 
           session.removeListener(sessionListener);
           session.removeActivityProducer(EditorManager.this);
@@ -572,7 +659,8 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
   private SharedIDEContext sharedIDEContext;
 
   /* Session state */
-  private final EditorPool editorPool = new EditorPool();
+  private final BackgroundEditorPool backgroundEditorPool = new BackgroundEditorPool();
+  private final EditorPool editorPool = new EditorPool(backgroundEditorPool);
 
   private final SharedEditorListenerDispatch editorListenerDispatch =
       new SharedEditorListenerDispatch();
@@ -596,13 +684,13 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
 
   @Override
   public String getContent(final SPath path) {
-    return Filesystem.runReadAction(
+    return FilesystemRunner.runReadAction(
         () -> {
           VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
 
           if (virtualFile == null || !virtualFile.exists() || virtualFile.isDirectory()) {
 
-            LOG.warn(
+            log.warn(
                 "Could not retrieve content of "
                     + path
                     + " as a matching VirtualFile could not be found,"
@@ -615,6 +703,12 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
 
           return (doc != null) ? doc.getText() : null;
         });
+  }
+
+  @Override
+  public String getNormalizedContent(SPath path) {
+    // Intellij editor content is already normalized
+    return getContent(path);
   }
 
   @Override
@@ -644,6 +738,18 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
 
   public void replaceAllEditorsForPath(SPath oldPath, SPath newPath) {
     editorPool.replacePath(oldPath, newPath);
+  }
+
+  /**
+   * Removes the given resource from the background editor pool if present.
+   *
+   * <p>This should be used to drop background editors for resources that are no longer available,
+   * i.e. were moved or removed.
+   *
+   * @param path the resource to remove from the background editor pool if present
+   */
+  public void removeBackgroundEditorForPath(@NotNull SPath path) {
+    backgroundEditorPool.dropBackgroundEditor(path);
   }
 
   EditorPool getEditorPool() {
@@ -717,11 +823,21 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
    * outside the editor package. If you still need to access this method, please consider whether
    * your class should rather be located in the editor package.
    */
+  // TODO handle TextRange.EMPTY_RANGE separately? Could represent no valid selection for editor
   public void generateSelection(SPath path, SelectionEvent newSelection) {
-    int offset = newSelection.getNewRange().getStartOffset();
-    int length = newSelection.getNewRange().getLength();
+    TextRange newSelectionRange = newSelection.getNewRange();
 
-    fireActivity(new TextSelectionActivity(session.getLocalUser(), offset, length, path));
+    Editor editor = newSelection.getEditor();
+
+    if (editor != null && newSelectionRange != null) {
+      int startOffset = newSelectionRange.getStartOffset();
+      int endOffset = newSelectionRange.getEndOffset();
+
+      TextSelection selection =
+          EditorAPI.calculateSelectionPosition(editor, startOffset, endOffset);
+
+      fireActivity(new TextSelectionActivity(session.getLocalUser(), selection, path));
+    }
   }
 
   /**
@@ -733,7 +849,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
    */
   public void generateViewport(SPath path, LineRange viewport) {
     if (session == null) {
-      LOG.warn("SharedEditorListener not correctly unregistered!");
+      log.warn("SharedEditorListener not correctly unregistered!");
       return;
     }
 
@@ -749,14 +865,32 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
    * outside the editor package. If you still need to access this method, please consider whether
    * your class should rather be located in the editor package.
    */
-  public void generateTextEdit(int offset, String newText, String replacedText, SPath path) {
+  public void generateTextEdit(
+      int offset,
+      @NotNull String newText,
+      @NotNull String replacedText,
+      @NotNull SPath path,
+      @NotNull Document document) {
 
     if (session == null) {
       return;
     }
 
+    Editor editor = editorPool.getEditor(path);
+
+    if (editor == null) {
+      editor = backgroundEditorPool.getBackgroundEditor(path, document);
+    }
+
+    TextPosition startPosition = EditorAPI.calculatePosition(editor, offset);
+
+    /*
+     * Intellij internally always uses UNIX line separators for editor content
+     * -> no line ending normalization necessary as content already normalized
+     */
     TextEditActivity textEdit =
-        new TextEditActivity(session.getLocalUser(), offset, newText, replacedText, path);
+        TextEditActivity.buildTextEditActivity(
+            session.getLocalUser(), startPosition, newText, replacedText, path);
 
     if (!hasWriteAccess || isLocked) {
       /*
@@ -768,7 +902,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
        * But watch out for changes because of a consistency check!
        */
 
-      LOG.warn(
+      log.warn(
           "local user caused text changes: "
               + textEdit
               + " | write access : "
@@ -783,8 +917,8 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
      * activities during the project negotiation
      */
     if (fileReplacementInProgressObservable.isReplacementInProgress()) {
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("File replacement in progress - Ignoring local activity " + textEdit);
+      if (log.isTraceEnabled()) {
+        log.trace("File replacement in progress - Ignoring local activity " + textEdit);
       }
 
       return;
@@ -807,7 +941,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
         userEditorStateManager.getState(jumpTo).getActiveEditorState();
 
     if (remoteActiveEditor == null) {
-      LOG.info("Remote user " + jumpTo + " does not have an open editor.");
+      log.info("Remote user " + jumpTo + " does not have an open editor.");
       return;
     }
 
@@ -892,8 +1026,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
   }
 
   private void executeInUIThreadSynchronous(Runnable runnable) {
-    ApplicationManager.getApplication()
-        .invokeAndWait(runnable, ModalityState.defaultModalityState());
+    EDTExecutor.invokeAndWait(runnable, ModalityState.defaultModalityState());
   }
 
   @Override
@@ -941,7 +1074,9 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
    */
   @Override
   public void adjustViewport(
-      @NotNull final SPath path, final LineRange range, final TextSelection selection) {
+      @NotNull final SPath path,
+      @Nullable final LineRange range,
+      @Nullable final TextSelection selection) {
 
     Set<String> visibleFilePaths = new HashSet<>();
 
@@ -954,7 +1089,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
     VirtualFile passedFile = VirtualFileConverter.convertToVirtualFile(path);
 
     if (passedFile == null) {
-      LOG.warn(
+      log.warn(
           "Ignoring request to adjust viewport as no valid VirtualFile could be found for "
               + path
               + " - given range: "
@@ -975,7 +1110,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
     }
 
     if (editor == null) {
-      LOG.warn(
+      log.warn(
           "Failed to adjust viewport for "
               + path
               + " as it is not known to the editor pool even though it is currently open");
@@ -1000,7 +1135,7 @@ public class EditorManager extends AbstractActivityProducer implements IEditorMa
    * @see #openEditor(SPath, boolean)
    * @see #startEditor(Editor)
    */
-  public void addEditorMapping(SPath file, Editor editor) {
+  public void addEditorMapping(@NotNull SPath file, @NotNull Editor editor) {
     startEditor(editor);
     editorPool.add(file, editor);
   }

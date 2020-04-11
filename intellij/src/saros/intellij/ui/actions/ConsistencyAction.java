@@ -1,7 +1,7 @@
 package saros.intellij.ui.actions;
 
-import com.intellij.openapi.application.ApplicationManager;
 import saros.concurrent.watchdog.ConsistencyWatchdogClient;
+import saros.intellij.runtime.EDTExecutor;
 import saros.intellij.ui.Messages;
 import saros.intellij.ui.widgets.progress.ProgressFrame;
 import saros.monitoring.IProgressMonitor;
@@ -25,15 +25,14 @@ public class ConsistencyAction extends AbstractSarosAction {
   /** This method starts {@link ConsistencyWatchdogClient#runRecovery(IProgressMonitor)}. */
   @Override
   public void execute() {
-    LOG.debug("user activated CW recovery.");
+    log.debug("user activated CW recovery.");
 
     final ProgressFrame progress = new ProgressFrame("Consistency action");
 
-    progress.setFinishListener(
-        () -> ApplicationManager.getApplication().invokeLater(this::actionPerformed));
+    progress.setFinishListener(() -> EDTExecutor.invokeLater(this::actionPerformed));
 
     ThreadUtils.runSafeAsync(
-        LOG,
+        log,
         () -> {
           progress.beginTask(
               Messages.ConsistencyAction_progress_perform_recovery, IProgressMonitor.UNKNOWN);

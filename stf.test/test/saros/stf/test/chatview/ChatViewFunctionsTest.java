@@ -9,9 +9,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import saros.stf.client.StfTestCase;
 import saros.stf.client.util.Util;
 import saros.stf.shared.Constants;
+import saros.stf.test.categories.FlakyTests;
 
 public class ChatViewFunctionsTest extends StfTestCase {
 
@@ -127,6 +129,9 @@ public class ChatViewFunctionsTest extends StfTestCase {
             .getChatMessage());
   }
 
+  // TODO: The test fails in single execution and succeeds
+  //       if the whole test class is executed.
+  @Category(FlakyTests.class)
   @Test
   public void testVisualChatNotification() throws Exception {
 

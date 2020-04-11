@@ -22,10 +22,11 @@ import saros.filesystem.IPath;
 import saros.filesystem.IProject;
 import saros.filesystem.IResource;
 import saros.intellij.project.filesystem.IntelliJPathImpl;
+import saros.intellij.runtime.FilesystemRunner;
 
 /** A <code>IntelliJProjectImpl</code> represents a specific module loaded in a specific project. */
 public final class IntelliJProjectImpl extends IntelliJResourceImpl implements IProject {
-  private static final Logger LOG = Logger.getLogger(IntelliJProjectImpl.class);
+  private static final Logger log = Logger.getLogger(IntelliJProjectImpl.class);
 
   private final Project project;
 
@@ -124,7 +125,7 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
 
     for (final VirtualFile child : children) {
 
-      if (!Filesystem.runReadAction(() -> moduleFileIndex.isInContent(child))) {
+      if (!FilesystemRunner.runReadAction(() -> moduleFileIndex.isInContent(child))) {
         continue;
       }
 
@@ -199,7 +200,8 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
   @Nullable
   private IPath getProjectRelativePath(@NotNull VirtualFile file) {
     ProjectFileIndex projectFileIndex = ProjectFileIndex.getInstance(project);
-    Module fileModule = Filesystem.runReadAction(() -> projectFileIndex.getModuleForFile(file));
+    Module fileModule =
+        FilesystemRunner.runReadAction(() -> projectFileIndex.getModuleForFile(file));
 
     if (!module.equals(fileModule)) {
       return null;
@@ -213,7 +215,7 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
       return IntelliJPathImpl.fromString(relativePath.toString());
 
     } catch (IllegalArgumentException e) {
-      LOG.warn(
+      log.warn(
           "Could not find a relative path from the content root "
               + moduleRoot
               + " to the file "
@@ -373,7 +375,8 @@ public final class IntelliJProjectImpl extends IntelliJResourceImpl implements I
     }
 
     ModuleFileIndex moduleFileIndex = ModuleRootManager.getInstance(module).getFileIndex();
-    boolean isInContent = Filesystem.runReadAction(() -> moduleFileIndex.isInContent(virtualFile));
+    boolean isInContent =
+        FilesystemRunner.runReadAction(() -> moduleFileIndex.isInContent(virtualFile));
 
     return isInContent ? virtualFile : null;
   }

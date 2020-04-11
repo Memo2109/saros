@@ -34,7 +34,7 @@ import saros.versioning.VersionManager;
 
 public final class InternalImpl extends StfRemoteObject implements IInternal {
 
-  private static final Logger LOG = Logger.getLogger(InternalImpl.class);
+  private static final Logger log = Logger.getLogger(InternalImpl.class);
 
   private static final InternalImpl INSTANCE = new InternalImpl();
 
@@ -73,10 +73,10 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
       localVersionField = VersionManager.class.getDeclaredField("localVersion");
       localVersionField.setAccessible(true);
     } catch (SecurityException e) {
-      LOG.error("reflection failed", e);
+      log.error("reflection failed", e);
       localVersionField = null;
     } catch (NoSuchFieldException e) {
-      LOG.error("reflection failed", e);
+      log.error("reflection failed", e);
       localVersionField = null;
     }
   }
@@ -86,10 +86,10 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
 
     Version newVersion;
 
-    LOG.trace("attempting to change saros version to: " + version);
+    log.trace("attempting to change saros version to: " + version);
 
     if (localVersionField == null) {
-      LOG.error("unable to change version, reflection failed during initialization");
+      log.error("unable to change version, reflection failed during initialization");
       throw new IllegalStateException(
           "unable to change version, reflection failed during initialization");
     }
@@ -97,7 +97,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
     try {
       newVersion = Version.parseVersion(version);
     } catch (IllegalArgumentException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw e;
     }
 
@@ -107,12 +107,13 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
         originalVersion = (Version) localVersionField.get(getVersionManager());
 
       localVersionField.set(getVersionManager(), newVersion);
+      getInfoManager().setLocalInfo(VersionManager.VERSION_KEY, newVersion.toString());
 
     } catch (IllegalArgumentException e) {
-      LOG.error("unable to change saros version, reflection failed", e);
+      log.error("unable to change saros version, reflection failed", e);
       throw new RemoteException("unable to change saros version, reflection failed", e);
     } catch (IllegalAccessException e) {
-      LOG.error("unable to change saros version, reflection failed", e);
+      log.error("unable to change saros version, reflection failed", e);
       throw new RemoteException("unable to change saros version, reflection failed", e);
     }
   }
@@ -120,31 +121,32 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
   @Override
   public void resetSarosVersion() throws RemoteException {
 
-    LOG.trace("attempting to reset saros version");
+    log.trace("attempting to reset saros version");
 
     if (originalVersion == null) {
-      LOG.trace("saros version was not changed");
+      log.trace("saros version was not changed");
       return;
     }
 
     try {
       localVersionField.set(getVersionManager(), originalVersion);
+      getInfoManager().setLocalInfo(VersionManager.VERSION_KEY, originalVersion.toString());
     } catch (IllegalArgumentException e) {
-      LOG.error("unable to reset saros version, reflection failed", e);
+      log.error("unable to reset saros version, reflection failed", e);
       throw new RemoteException("unable to reset saros version, reflection failed", e);
     } catch (IllegalAccessException e) {
-      LOG.error("unable to reset saros version, reflection failed", e);
+      log.error("unable to reset saros version, reflection failed", e);
       throw new RemoteException("unable to reset saros version, reflection failed", e);
     }
 
-    LOG.trace("changed saros version to its default state");
+    log.trace("changed saros version to its default state");
     originalVersion = null;
   }
 
   @Override
   public void createFile(String projectName, String path, String content) throws RemoteException {
 
-    LOG.trace(
+    log.trace(
         "creating file in project '" + projectName + "', path '" + path + "' content: " + content);
 
     path = path.replace('\\', '/');
@@ -161,17 +163,17 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
       file.create(
           new ByteArrayInputStream(content.getBytes(project.getDefaultCharset())), true, null);
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     } catch (UnsupportedEncodingException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
 
   @Override
   public void append(String projectName, String path, String content) throws RemoteException {
-    LOG.trace(
+    log.trace(
         "appending content '"
             + content
             + "' to file '"
@@ -187,7 +189,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
       file.appendContents(new ByteArrayInputStream(content.getBytes()), true, false, null);
 
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
@@ -196,7 +198,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
   public void createFile(String projectName, String path, int size, boolean compressAble)
       throws RemoteException {
 
-    LOG.trace(
+    log.trace(
         "creating file in project '"
             + projectName
             + "', path '"
@@ -217,7 +219,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
     try {
       file.create(new GeneratingInputStream(size, compressAble), true, null);
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
@@ -228,11 +230,11 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
 
     for (IProject project : ResourcesPlugin.getWorkspace().getRoot().getProjects()) {
       try {
-        LOG.trace("deleting project: " + project.getName());
+        log.trace("deleting project: " + project.getName());
         project.delete(true, true, null);
       } catch (CoreException e) {
         error = true;
-        LOG.error("unable to delete project '" + project.getName() + "' :" + e.getMessage(), e);
+        log.error("unable to delete project '" + project.getName() + "' :" + e.getMessage(), e);
       }
     }
     return !error;
@@ -253,13 +255,13 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
   @Override
   public void createProject(String projectName) throws RemoteException {
 
-    LOG.trace("creating project: " + projectName);
+    log.trace("creating project: " + projectName);
     IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject(projectName);
     try {
       project.create(null);
       project.open(null);
     } catch (CoreException e) {
-      LOG.error("unable to create project '" + projectName + "' : " + e.getMessage(), e);
+      log.error("unable to create project '" + projectName + "' : " + e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
@@ -267,7 +269,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
   @Override
   public void createJavaProject(String projectName) throws RemoteException {
 
-    LOG.trace("creating java project: " + projectName);
+    log.trace("creating java project: " + projectName);
 
     IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject(projectName);
 
@@ -297,7 +299,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
       javaProject.setRawClasspath(entries.toArray(new IClasspathEntry[entries.size()]), null);
 
     } catch (CoreException e) {
-      LOG.error("unable to create java project '" + projectName + "' :" + e.getMessage(), e);
+      log.error("unable to create java project '" + projectName + "' :" + e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
@@ -313,7 +315,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
 
       String segments[] = path.split("/");
       IFolder folder = project.getFolder(segments[0]);
-      LOG.trace(Arrays.asList(segments));
+      log.trace(Arrays.asList(segments));
       if (!folder.exists()) folder.create(true, true, null);
 
       if (segments.length <= 1) return;
@@ -324,7 +326,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
       }
 
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
@@ -363,7 +365,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
     try {
       in = new DataInputStream(file.getContents());
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
 
@@ -385,7 +387,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
     try {
       project.setDefaultCharset(charset, null);
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }
@@ -400,7 +402,7 @@ public final class InternalImpl extends StfRemoteObject implements IInternal {
     try {
       file.setCharset(charset, null);
     } catch (CoreException e) {
-      LOG.error(e.getMessage(), e);
+      log.error(e.getMessage(), e);
       throw new RemoteException(e.getMessage(), e.getCause());
     }
   }

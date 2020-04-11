@@ -25,8 +25,7 @@ time.
 
 ## Various Sharing Options
 
-You may share multiple projects within one session. You may also share
-only a selection of files of a project. If you create, delete or rename
+You may share multiple projects within one session. If you create, delete or rename
 a file/folder in a shared project, it will be created/deleted/renamed at
 the session's participants as well.
 
@@ -51,8 +50,3 @@ editing activities of your team members.
 Saros frequently checks if your copy became out of sync with the host's
 copy. In that case, Saros allows you to easily recover from this
 inconsistency.
-
-## Whiteboard
-
-Saros provides a concurrent drawing tool for communicating topics
-graphically.

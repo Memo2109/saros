@@ -18,7 +18,6 @@ import saros.intellij.ui.Messages;
 import saros.intellij.ui.actions.AbstractSarosAction;
 import saros.intellij.ui.actions.ConnectServerAction;
 import saros.intellij.ui.actions.DisconnectServerAction;
-import saros.intellij.ui.actions.NotImplementedAction;
 import saros.intellij.ui.util.IconManager;
 import saros.intellij.ui.util.SafeDialogUtils;
 import saros.net.xmpp.JID;
@@ -26,7 +25,7 @@ import saros.repackaged.picocontainer.annotations.Inject;
 
 /** Implementation of connect XMPP/jabber server button */
 public class ConnectButton extends AbstractToolbarButton {
-  private static final Logger LOG = Logger.getLogger(ConnectButton.class);
+  private static final Logger log = Logger.getLogger(ConnectButton.class);
 
   private static final String USER_ID_SEPARATOR = "@";
 
@@ -34,38 +33,53 @@ public class ConnectButton extends AbstractToolbarButton {
       Boolean.getBoolean("saros.intellij.ENABLE_CONFIGURE_ACCOUNTS");
 
   private final JPopupMenu popupMenu;
-  private JMenuItem menuItemAdd;
-  private JMenuItem configure;
-  private JMenuItem disconnect;
+
+  private final JMenuItem addAccountItem;
+  private final JMenuItem createAccountItem;
+  private final JMenuItem configureAccountItem;
+  private final JMenuItem disconnectItem;
 
   private final AbstractSarosAction disconnectAction;
   private final ConnectServerAction connectAction;
-  private final NotImplementedAction configureAccounts;
-
-  private final Project project;
+  private final AbstractSarosAction configureAccounts;
 
   @Inject private XMPPAccountStore accountStore;
 
   public ConnectButton(@NotNull Project project) {
-    super(ConnectServerAction.NAME, Messages.ConnectButton_tooltip, IconManager.CONNECT_ICON);
-    SarosPluginContext.initComponent(this);
+    super(
+        project,
+        ConnectServerAction.NAME,
+        Messages.ConnectButton_tooltip,
+        IconManager.CONNECT_ICON);
 
-    this.project = project;
+    SarosPluginContext.initComponent(this);
 
     disconnectAction = new DisconnectServerAction(project);
     connectAction = new ConnectServerAction(project);
+    configureAccounts =
+        new AbstractSarosAction() {
+          @Override
+          public String getActionName() {
+            throw new UnsupportedOperationException("Not yet implemented");
+          }
+
+          @Override
+          public void execute() {
+            throw new UnsupportedOperationException("Not yet implemented");
+          }
+        };
 
     popupMenu = new JBPopupMenu();
+
+    addAccountItem = createAddAccountMenuItem();
+    createAccountItem = createCreateAccountMenuItem();
+    configureAccountItem = createConfigureAccountMenuItem();
+    disconnectItem = createDisconnectMenuItem();
 
     popupMenu.setForeground(FOREGROUND_COLOR);
     popupMenu.setBackground(BACKGROUND_COLOR);
 
-    configureAccounts = new NotImplementedAction("configure accounts");
-
-    createDisconnectMenuItem();
-    createAddAccountMenuItem();
-    createConfigureAccountMenuItem();
-    createMenuItems();
+    addMenuItems();
 
     addActionListener(
         actionEvent -> {
@@ -73,7 +87,7 @@ public class ConnectButton extends AbstractToolbarButton {
             XMPPAccount account = createNewAccount();
 
             if (account != null) {
-              createMenuItems();
+              addMenuItems();
 
               askToConnectToAccount(account);
 
@@ -85,20 +99,75 @@ public class ConnectButton extends AbstractToolbarButton {
         });
   }
 
-  private void createMenuItems() {
+  private JMenuItem createAddAccountMenuItem() {
+    JMenuItem addAccountItem = getPreconfiguredMenuItem(Messages.ConnectButton_add_account);
+
+    addAccountItem.addActionListener(
+        actionEvent -> {
+          XMPPAccount account = createNewAccount();
+
+          if (account == null) {
+            return;
+          }
+
+          addMenuItems();
+
+          askToConnectToAccount(account);
+        });
+
+    return addAccountItem;
+  }
+
+  private JMenuItem createCreateAccountMenuItem() {
+    JMenuItem createAccountItem = getPreconfiguredMenuItem(Messages.ConnectButton_create_account);
+
+    createAccountItem.addActionListener(
+        (actionEvent) ->
+            SafeDialogUtils.showInfo(
+                project,
+                Messages.ConnectButton_create_account_message,
+                Messages.ConnectButton_create_account_title));
+
+    return createAccountItem;
+  }
+
+  private JMenuItem createConfigureAccountMenuItem() {
+    JMenuItem configureAccountItem =
+        getPreconfiguredMenuItem(Messages.ConnectButton_configure_accounts);
+
+    configureAccountItem.addActionListener(actionEvent -> configureAccounts.execute());
+
+    return configureAccountItem;
+  }
+
+  private JMenuItem createDisconnectMenuItem() {
+    JMenuItem disconnectItem = getPreconfiguredMenuItem(Messages.ConnectButton_disconnect);
+
+    disconnectItem.addActionListener(actionEvent -> disconnectAction.execute());
+
+    return disconnectItem;
+  }
+
+  @Override
+  public void dispose() {
+    // NOP
+  }
+
+  private void addMenuItems() {
     popupMenu.removeAll();
     for (XMPPAccount account : accountStore.getAllAccounts()) {
       createAccountMenuItem(account);
     }
 
     popupMenu.addSeparator();
-    popupMenu.add(menuItemAdd);
+    popupMenu.add(addAccountItem);
+    popupMenu.add(createAccountItem);
 
     if (ENABLE_CONFIGURE_ACCOUNTS) {
-      popupMenu.add(configure);
+      popupMenu.add(configureAccountItem);
     }
 
-    popupMenu.add(disconnect);
+    popupMenu.add(disconnectItem);
   }
 
   private void createAccountMenuItem(XMPPAccount account) {
@@ -108,69 +177,28 @@ public class ConnectButton extends AbstractToolbarButton {
   }
 
   private JMenuItem createMenuItemForUser(final String userName) {
-    JMenuItem accountItem = new JBMenuItem(userName);
-
-    accountItem.setForeground(FOREGROUND_COLOR);
-    accountItem.setBackground(BACKGROUND_COLOR);
+    JMenuItem accountItem = getPreconfiguredMenuItem(userName);
 
     accountItem.addActionListener(actionEvent -> connectAction.executeWithUser(userName));
 
     return accountItem;
   }
 
-  private void createDisconnectMenuItem() {
-    disconnect = new JBMenuItem(Messages.ConnectButton_disconnect);
-
-    disconnect.setForeground(FOREGROUND_COLOR);
-    disconnect.setBackground(BACKGROUND_COLOR);
-
-    disconnect.addActionListener(actionEvent -> disconnectAction.execute());
-  }
-
-  private void createConfigureAccountMenuItem() {
-    configure = new JBMenuItem(Messages.ConnectButton_configure_accounts);
-
-    configure.setForeground(FOREGROUND_COLOR);
-    configure.setBackground(BACKGROUND_COLOR);
-
-    configure.addActionListener(actionEvent -> configureAccounts.execute());
-  }
-
-  private void createAddAccountMenuItem() {
-    menuItemAdd = new JBMenuItem(Messages.ConnectButton_add_account);
-
-    menuItemAdd.setForeground(FOREGROUND_COLOR);
-    menuItemAdd.setBackground(BACKGROUND_COLOR);
-
-    menuItemAdd.addActionListener(
-        actionEvent -> {
-          XMPPAccount account = createNewAccount();
-
-          if (account == null) {
-            return;
-          }
-
-          createMenuItems();
-
-          askToConnectToAccount(account);
-        });
-  }
-
   private void askToConnectToAccount(@NotNull XMPPAccount account) {
     try {
-      Integer option =
+      boolean choseYes =
           SafeDialogUtils.showYesNoDialog(
               project,
               Messages.ConnectButton_connect_to_new_account_message,
               Messages.ConnectButton_connect_to_new_account_title);
 
-      if (option == com.intellij.openapi.ui.Messages.YES) {
+      if (choseYes) {
         connectAction.executeWithUser(
             account.getUsername() + USER_ID_SEPARATOR + account.getDomain());
       }
 
     } catch (IllegalAWTContextException e) {
-      LOG.error("Account creation failed.", e);
+      log.error("Account creation failed.", e);
 
       showAccountCreationFailedError(e);
     }
@@ -195,7 +223,7 @@ public class ConnectButton extends AbstractToolbarButton {
               new TextRange(0, 0));
 
     } catch (IllegalAWTContextException e) {
-      LOG.error("Account creation failed.", e);
+      log.error("Account creation failed.", e);
 
       showAccountCreationFailedError(e);
 
@@ -203,7 +231,7 @@ public class ConnectButton extends AbstractToolbarButton {
     }
 
     if (userID == null) {
-      LOG.debug("Account creation canceled by user during user id entry.");
+      log.debug("Account creation canceled by user during user id entry.");
 
       return null;
     }
@@ -216,7 +244,7 @@ public class ConnectButton extends AbstractToolbarButton {
           Messages.ConnectButton_account_creation_invalid_jid_message,
           Messages.ConnectButton_account_creation_invalid_jid_title);
 
-      LOG.debug("Account creation failed as the user did not provide a valid user id.");
+      log.debug("Account creation failed as the user did not provide a valid user id.");
 
       return null;
     }
@@ -234,7 +262,7 @@ public class ConnectButton extends AbstractToolbarButton {
               Messages.ConnectButton_account_creation_password_title);
 
     } catch (IllegalAWTContextException e) {
-      LOG.error("Account creation failed.", e);
+      log.error("Account creation failed.", e);
 
       showAccountCreationFailedError(e);
 
@@ -242,7 +270,7 @@ public class ConnectButton extends AbstractToolbarButton {
     }
 
     if (password == null) {
-      LOG.debug("Account creation canceled by user during password entry.");
+      log.debug("Account creation canceled by user during password entry.");
 
       return null;
 
@@ -252,7 +280,7 @@ public class ConnectButton extends AbstractToolbarButton {
           Messages.ConnectButton_account_creation_invalid_password_message,
           Messages.ConnectButton_account_creation_invalid_password_title);
 
-      LOG.debug("Account creation failed as the user did not provide a valid password.");
+      log.debug("Account creation failed as the user did not provide a valid password.");
 
       return null;
     }
@@ -270,7 +298,7 @@ public class ConnectButton extends AbstractToolbarButton {
               Messages.ConnectButton_account_creation_xmpp_server_title);
 
     } catch (IllegalAWTContextException e) {
-      LOG.error("Account creation failed.", e);
+      log.error("Account creation failed.", e);
 
       showAccountCreationFailedError(e);
 
@@ -278,7 +306,7 @@ public class ConnectButton extends AbstractToolbarButton {
     }
 
     if (server == null) {
-      LOG.debug("Account creation canceled by user during server entry.");
+      log.debug("Account creation canceled by user during server entry.");
 
       return null;
 
@@ -294,7 +322,7 @@ public class ConnectButton extends AbstractToolbarButton {
                 Messages.ConnectButton_account_creation_xmpp_server_port_message);
 
       } catch (IllegalAWTContextException e) {
-        LOG.error("Account creation failed.", e);
+        log.error("Account creation failed.", e);
 
         showAccountCreationFailedError(e);
 
@@ -302,7 +330,7 @@ public class ConnectButton extends AbstractToolbarButton {
       }
 
       if (portUserEntry == null) {
-        LOG.debug("Account creation canceled by user during server port entry.");
+        log.debug("Account creation canceled by user during server port entry.");
 
         return null;
       }
@@ -322,7 +350,7 @@ public class ConnectButton extends AbstractToolbarButton {
             Messages.ConnectButton_account_creation_xmpp_server_invalid_port_message,
             Messages.ConnectButton_account_creation_xmpp_server_invalid_port_title);
 
-        LOG.debug("Account creation failed as the user did not provide a valid server port.");
+        log.debug("Account creation failed as the user did not provide a valid server port.");
 
         return null;
       }
@@ -332,7 +360,7 @@ public class ConnectButton extends AbstractToolbarButton {
       return accountStore.createAccount(username, password, domain, server, port, true, true);
 
     } catch (IllegalArgumentException e) {
-      LOG.error("Account creation failed", e);
+      log.error("Account creation failed", e);
 
       showAccountCreationFailedError(e);
 
@@ -352,5 +380,14 @@ public class ConnectButton extends AbstractToolbarButton {
         MessageFormat.format(
             Messages.ConnectButton_account_creation_failed_message, e.getMessage()),
         Messages.ConnectButton_account_creation_failed_title);
+  }
+
+  private JMenuItem getPreconfiguredMenuItem(String text) {
+    JMenuItem jMenuItem = new JBMenuItem(text);
+
+    jMenuItem.setForeground(FOREGROUND_COLOR);
+    jMenuItem.setBackground(BACKGROUND_COLOR);
+
+    return jMenuItem;
   }
 }

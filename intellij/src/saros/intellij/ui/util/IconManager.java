@@ -6,7 +6,7 @@ import org.apache.log4j.Logger;
 
 /** Class caches all icons used in application */
 public class IconManager {
-  public static final Logger LOG = Logger.getLogger(IconManager.class);
+  public static final Logger log = Logger.getLogger(IconManager.class);
 
   public static final ImageIcon SAROS_ICON = getIcon("/icons/saros/saros_misc.png", "Saros Icon");
 
@@ -31,6 +31,9 @@ public class IconManager {
   public static final ImageIcon LEAVE_SESSION_ICON =
       getIcon("/icons/famfamfam/session_leave_tsk.png", "leave");
 
+  public static final ImageIcon TERMINATE_SESSION_ICON =
+      getIcon("/icons/elcl16/session_terminate_tsk.png", "terminate session");
+
   public static final ImageIcon ADD_CONTACT_ICON =
       getIcon("/icons/famfamfam/contact_add_tsk.png", "addContact");
   public static final ImageIcon OPEN_PREFERENCES_ICON =
@@ -45,7 +48,7 @@ public class IconManager {
   private static ImageIcon getIcon(String path, String description) {
     URL url = IconManager.class.getResource(path);
     if (url == null) {
-      LOG.error("Could not load icon " + path + ". Path does not exist in resources: " + path);
+      log.error("Could not load icon " + path + ". Path does not exist in resources: " + path);
     }
 
     return new ImageIcon(url, description);

@@ -17,7 +17,6 @@ import saros.exceptions.LocalCancellationException;
 import saros.exceptions.SarosCancellationException;
 import saros.filesystem.IChecksumCache;
 import saros.filesystem.IProject;
-import saros.filesystem.IResource;
 import saros.filesystem.IWorkspace;
 import saros.monitoring.IProgressMonitor;
 import saros.monitoring.SubProgressMonitor;
@@ -41,7 +40,7 @@ import saros.synchronize.StartHandle;
  */
 public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiation {
 
-  private static final Logger LOG = Logger.getLogger(AbstractOutgoingProjectNegotiation.class);
+  private static final Logger log = Logger.getLogger(AbstractOutgoingProjectNegotiation.class);
 
   protected ProjectSharingData projects;
 
@@ -111,8 +110,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
       if (!session.isHost()) {
         for (IProject project : projects) {
           String projectID = projects.getProjectID(project);
-          List<IResource> resources = projects.getResourcesToShare(project);
-          session.addSharedResources(project, projectID, resources);
+          session.addSharedProject(project, projectID);
         }
       }
 
@@ -187,7 +185,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
 
     checkCancellation(CancelOption.NOTIFY_PEER);
 
-    LOG.debug(this + " : sending file list");
+    log.debug(this + " : sending file list");
 
     /*
      * file lists are normally very small so we "accept" the circumstance
@@ -221,7 +219,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
   protected List<FileList> getRemoteFileList(IProgressMonitor monitor)
       throws IOException, SarosCancellationException {
 
-    LOG.debug(this + " : waiting for remote file list");
+    log.debug(this + " : waiting for remote file list");
 
     monitor.beginTask(
         "Waiting for " + getPeer().getName() + " to choose project(s) location",
@@ -239,7 +237,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
     List<FileList> remoteFileLists =
         ProjectNegotiationMissingFilesExtension.PROVIDER.getPayload(packet).getFileLists();
 
-    LOG.debug(this + " : remote file list has been received");
+    log.debug(this + " : remote file list has been received");
 
     checkCancellation(CancelOption.NOTIFY_PEER);
 
@@ -268,7 +266,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
 
     final List<User> usersToStop = new ArrayList<User>(session.getUsers());
 
-    LOG.debug(this + " : stopping users " + usersToStop);
+    log.debug(this + " : stopping users " + usersToStop);
 
     monitor.beginTask("Locking the session...", IProgressMonitor.UNKNOWN);
 
@@ -278,7 +276,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
           .getStopManager()
           .stop(usersToStop, "archive creation for OPN [id=" + getID() + "]");
     } catch (CancellationException e) {
-      LOG.warn("failed to stop users", e);
+      log.warn("failed to stop users", e);
       return null;
     } finally {
       monitor.done();
@@ -287,7 +285,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
 
   protected void startUsers(List<StartHandle> startHandles) {
     for (StartHandle startHandle : startHandles) {
-      LOG.debug(this + " : restarting user " + startHandle.getUser());
+      log.debug(this + " : restarting user " + startHandle.getUser());
       startHandle.start();
     }
   }
@@ -328,7 +326,6 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
         throw new LocalCancellationException(null, CancelOption.DO_NOT_NOTIFY_PEER);
       try {
         String projectID = projectSharingData.getProjectID(project);
-        List<IResource> resources = projectSharingData.getResourcesToShare(project);
 
         /*
          * force editor buffer flush because we read the files from the
@@ -339,7 +336,6 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
         FileList projectFileList =
             FileListFactory.createFileList(
                 project,
-                resources,
                 checksumCache,
                 new SubProgressMonitor(
                     monitor,
@@ -347,15 +343,13 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
                     SubProgressMonitor.SUPPRESS_BEGINTASK
                         | SubProgressMonitor.SUPPRESS_SETTASKNAME));
 
-        boolean partial = projectSharingData.shouldBeSharedPartially(project);
-
         projectFileList.setProjectID(projectID);
 
         Map<String, String> additionalProjectData = additionalProjectDataFactory.build(project);
 
         ProjectNegotiationData data =
             new ProjectNegotiationData(
-                projectID, project.getName(), partial, projectFileList, additionalProjectData);
+                projectID, project.getName(), projectFileList, additionalProjectData);
 
         negData.add(data);
 
@@ -366,7 +360,7 @@ public abstract class AbstractOutgoingProjectNegotiation extends ProjectNegotiat
          * no existing project negotiation yet
          */
         localCancel(e.getMessage(), CancelOption.DO_NOT_NOTIFY_PEER);
-        // throw to LOG this error in the Negotiation class
+        // throw to log this error in the Negotiation class
         throw new IOException(e.getMessage(), e);
       }
     }

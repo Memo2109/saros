@@ -20,7 +20,7 @@ import saros.session.ISarosSession;
  */
 public class LocalEditorHandler {
 
-  private static final Logger LOG = Logger.getLogger(LocalEditorHandler.class);
+  private static final Logger log = Logger.getLogger(LocalEditorHandler.class);
 
   private final EditorManager manager;
   private final ISarosSession sarosSession;
@@ -58,7 +58,7 @@ public class LocalEditorHandler {
     SPath path = VirtualFileConverter.convertToSPath(project, virtualFile);
 
     if (path == null || !sarosSession.isShared(path.getResource())) {
-      LOG.debug(
+      log.debug(
           "Ignored open editor request for file "
               + virtualFile
               + " as it does not belong to a shared module");
@@ -70,8 +70,10 @@ public class LocalEditorHandler {
   }
 
   /**
-   * Opens an editor for the passed virtualFile, adds it to the pool of currently open editors and
-   * calls {@link EditorManager#startEditor(Editor)} with it.
+   * Opens an editor for the passed virtualFile.
+   *
+   * <p>If the editor is a text editor, it is also added to the pool of currently open editors and
+   * {@link EditorManager#startEditor(Editor)} is called with it.
    *
    * <p><b>Note:</b> This only works for shared resources that belong to the given module.
    *
@@ -79,7 +81,7 @@ public class LocalEditorHandler {
    * @param project module the file belongs to
    * @param activate activate editor after opening
    * @return the opened <code>Editor</code> or <code>null</code> if the given file does not belong
-   *     to a shared module
+   *     to a shared module or can not be represented by a text editor
    */
   @Nullable
   public Editor openEditor(
@@ -88,7 +90,7 @@ public class LocalEditorHandler {
     IResource resource = VirtualFileConverter.convertToResource(virtualFile, project);
 
     if (resource == null || !sarosSession.isShared(resource)) {
-      LOG.debug(
+      log.debug(
           "Could not open Editor for file "
               + virtualFile
               + " as it does not belong to the given module "
@@ -101,8 +103,10 @@ public class LocalEditorHandler {
   }
 
   /**
-   * Opens an editor for the passed virtualFile, adds it to the pool of currently open editors and
-   * calls {@link EditorManager#startEditor(Editor)} with it.
+   * Opens an editor for the passed virtualFile.
+   *
+   * <p>If the editor is a text editor, it is also added to the pool of currently open editors and
+   * {@link EditorManager#startEditor(Editor)} is called with it.
    *
    * <p><b>Note:</b> This only works for shared resources.
    *
@@ -113,19 +117,19 @@ public class LocalEditorHandler {
    * @param path saros resource representation of the file
    * @param activate activate editor after opening
    * @return the opened <code>Editor</code> or <code>null</code> if the given file does not exist or
-   *     does not belong to a shared module
+   *     does not belong to a shared module or can not be represented by a text editor
    */
   @Nullable
   private Editor openEditor(
       @NotNull VirtualFile virtualFile, @NotNull SPath path, boolean activate) {
 
     if (!virtualFile.exists()) {
-      LOG.debug("Could not open Editor for file " + virtualFile + " as it does not exist");
+      log.debug("Could not open Editor for file " + virtualFile + " as it does not exist");
 
       return null;
 
     } else if (!sarosSession.isShared(path.getResource())) {
-      LOG.debug("Ignored open editor request for file " + virtualFile + " as it is not shared");
+      log.debug("Ignored open editor request for file " + virtualFile + " as it is not shared");
 
       return null;
     }
@@ -134,16 +138,24 @@ public class LocalEditorHandler {
 
     Editor editor = ProjectAPI.openEditor(project, virtualFile, activate);
 
+    if (editor == null) {
+      log.debug("Ignoring non-text editor for file " + virtualFile);
+
+      return null;
+    }
+
     editorPool.add(path, editor);
     manager.startEditor(editor);
 
-    LOG.debug("Opened Editor " + editor + " for file " + virtualFile);
+    log.debug("Opened Editor " + editor + " for file " + virtualFile);
 
     return editor;
   }
 
   /**
-   * Removes a file from the editorPool and calls {@link EditorManager#generateEditorClosed(SPath)}
+   * Removes a file from the editorPool and calls {@link EditorManager#generateEditorClosed(SPath)}.
+   *
+   * <p>Does nothing if the file is not shared.
    *
    * @param project the project in which to close the editor
    * @param virtualFile the file for which to close the editor
@@ -169,6 +181,10 @@ public class LocalEditorHandler {
   /**
    * Saves the document under path, thereby flushing its contents to disk.
    *
+   * <p>Does nothing if there is no unsaved document content for the given resource. This is the
+   * case if the resource document has not been modified or the resource can not be opened as a
+   * document.
+   *
    * @param path the path for the document to save
    * @see Document
    */
@@ -176,22 +192,33 @@ public class LocalEditorHandler {
 
     Document document = editorPool.getDocument(path);
 
+    if (document != null) {
+      if (DocumentAPI.hasUnsavedChanges(document)) {
+
+        DocumentAPI.saveDocument(document);
+      }
+
+      return;
+    }
+
+    VirtualFile file = VirtualFileConverter.convertToVirtualFile(path);
+
+    if (file == null || !file.exists()) {
+      log.warn("Failed to save document for " + path + " - could not get a valid VirtualFile");
+
+      return;
+    }
+
+    if (!DocumentAPI.hasUnsavedChanges(file)) {
+      return;
+    }
+
+    document = DocumentAPI.getDocument(file);
+
     if (document == null) {
-      VirtualFile file = VirtualFileConverter.convertToVirtualFile(path);
+      log.warn("Failed to save document for " + file + " - could not get a matching Document");
 
-      if (file == null || !file.exists()) {
-        LOG.warn("Failed to save document for " + path + " - could not get a valid VirtualFile");
-
-        return;
-      }
-
-      document = DocumentAPI.getDocument(file);
-
-      if (document == null) {
-        LOG.warn("Failed to save document for " + file + " - could not get a matching Document");
-
-        return;
-      }
+      return;
     }
 
     DocumentAPI.saveDocument(document);

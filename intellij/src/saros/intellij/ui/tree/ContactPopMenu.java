@@ -10,8 +10,10 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
@@ -20,7 +22,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import saros.core.ui.util.CollaborationUtils;
 import saros.filesystem.IProject;
-import saros.filesystem.IResource;
 import saros.intellij.context.SharedIDEContext;
 import saros.intellij.filesystem.IntelliJProjectImpl;
 import saros.intellij.ui.Messages;
@@ -34,7 +35,7 @@ import saros.net.xmpp.JID;
  */
 class ContactPopMenu extends JPopupMenu {
 
-  private static final Logger LOG = Logger.getLogger(ContactPopMenu.class);
+  private static final Logger log = Logger.getLogger(ContactPopMenu.class);
 
   private final ContactTreeRootNode.ContactInfo contactInfo;
 
@@ -90,7 +91,7 @@ class ContactPopMenu extends JPopupMenu {
       }
 
     } else {
-      LOG.debug(
+      log.debug(
           "No modules shown to user as no modules "
               + (nonCompliantModules.isEmpty()
                   ? ""
@@ -167,7 +168,7 @@ class ContactPopMenu extends JPopupMenu {
         shownModules.add(moduleItem);
 
       } catch (IllegalArgumentException exception) {
-        LOG.debug(
+        log.debug(
             "Ignoring module "
                 + fullModuleName
                 + " as it does not meet the current release restrictions.");
@@ -200,7 +201,7 @@ class ContactPopMenu extends JPopupMenu {
     @Override
     public void actionPerformed(ActionEvent e) {
       if (module == null || !module.exists()) {
-        LOG.error(
+        log.error(
             "The IProject object for the module "
                 + moduleName
                 + " could not be created. This most likely means that the local Intellij instance "
@@ -216,15 +217,11 @@ class ContactPopMenu extends JPopupMenu {
         return;
       }
 
-      List<IResource> resources = new ArrayList<>();
-      resources.add(module);
-
-      JID user = new JID(contactInfo.getRosterEntry().getUser());
-      List<JID> contacts = new ArrayList<>();
-      contacts.add(user);
+      Set<IProject> projects = Collections.singleton(module);
+      List<JID> contacts = Collections.singletonList(contactInfo.getJid());
 
       SharedIDEContext.preregisterProject(project);
-      CollaborationUtils.startSession(resources, contacts);
+      CollaborationUtils.startSession(projects, contacts);
     }
   }
 }

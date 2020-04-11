@@ -19,71 +19,229 @@
  */
 package saros.activities;
 
+import static saros.util.LineSeparatorNormalizationUtil.NORMALIZED_LINE_SEPARATOR;
+
 import java.util.Objects;
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.log4j.Logger;
 import saros.concurrent.jupiter.Operation;
 import saros.concurrent.jupiter.internal.text.DeleteOperation;
 import saros.concurrent.jupiter.internal.text.InsertOperation;
 import saros.concurrent.jupiter.internal.text.NoOperation;
 import saros.concurrent.jupiter.internal.text.SplitOperation;
+import saros.editor.text.TextPosition;
+import saros.editor.text.TextPositionUtils;
 import saros.session.User;
+import saros.util.LineSeparatorNormalizationUtil;
 
 /**
  * An immutable TextEditActivity.
  *
- * @author rdjemili
+ * <p>The replaced and new text contained in text edit activities only uses normalized line
+ * separators, meaning it doesn't contain any line separators besides the {@link
+ * LineSeparatorNormalizationUtil#NORMALIZED_LINE_SEPARATOR}.
+ *
+ * @see LineSeparatorNormalizationUtil
  */
 public class TextEditActivity extends AbstractResourceActivity {
 
   private static final Logger log = Logger.getLogger(TextEditActivity.class);
 
-  protected final int offset;
-  protected final String text;
+  protected final String newText;
   protected final String replacedText;
 
+  private final TextPosition startPosition;
+
+  private final int newTextLineDelta;
+  private final int newTextOffsetDelta;
+
+  private final int replacedTextLineDelta;
+  private final int replacedTextOffsetDelta;
+
   /**
-   * @param offset the offset inside the document where this Activity happened.
-   * @param text the text that was inserted.
-   * @param replacedText the text that was replaced by this Activity.
-   * @param path path of the editor where this Activity happened.
-   * @param source JID of the user that caused this Activity
+   * Calculates the line and offset deltas for the given new and replaced text and instantiates a
+   * new text edit activity with the given parameters and the calculated deltas.
+   *
+   * <p>The given replaced and new text must only use normalized line separators, meaning it must
+   * not contain any line separators besides the {@link
+   * LineSeparatorNormalizationUtil#NORMALIZED_LINE_SEPARATOR}.
+   *
+   * <p>Uses the normalization line separator to calculate the line delta and offset delta of the
+   * given new and replaced text.
+   *
+   * @param source the user that caused the activity
+   * @param startPosition the position at which the text edit activity applies
+   * @param newText the new text added with this activity
+   * @param replacedText the replaced text removed with this activity
+   * @param path the resource the activity belongs to
+   * @see TextPositionUtils#calculateDeltas(String,String)
+   * @see LineSeparatorNormalizationUtil
    */
-  public TextEditActivity(User source, int offset, String text, String replacedText, SPath path) {
+  public static TextEditActivity buildTextEditActivity(
+      User source, TextPosition startPosition, String newText, String replacedText, SPath path) {
+
+    Pair<Integer, Integer> newTextDeltas =
+        TextPositionUtils.calculateDeltas(newText, NORMALIZED_LINE_SEPARATOR);
+
+    int newTextLineDelta = newTextDeltas.getLeft();
+    int newTextOffsetDelta = newTextDeltas.getRight();
+
+    Pair<Integer, Integer> replacedTextDeltas =
+        TextPositionUtils.calculateDeltas(replacedText, NORMALIZED_LINE_SEPARATOR);
+
+    int replacedTextLineDelta = replacedTextDeltas.getLeft();
+    int replacedTextOffsetDelta = replacedTextDeltas.getRight();
+
+    return new TextEditActivity(
+        source,
+        startPosition,
+        newTextLineDelta,
+        newTextOffsetDelta,
+        newText,
+        replacedTextLineDelta,
+        replacedTextOffsetDelta,
+        replacedText,
+        path);
+  }
+
+  /**
+   * Instantiates a new text edit activity with the given parameters.
+   *
+   * <p>The given replaced and new text must only use normalized line separators, meaning it must
+   * not contain any line separators besides the {@link
+   * LineSeparatorNormalizationUtil#NORMALIZED_LINE_SEPARATOR}.
+   *
+   * @param source the user that caused the activity
+   * @param startPosition the position at which the text edit activity applies
+   * @param newTextLineDelta the number of lines added with the new text
+   * @param newTextOffsetDelta the offset delta in the last line of the new text
+   * @param newText the new text added with this activity
+   * @param replacedTextLineDelta the number of lines removed with the replaced text
+   * @param replacedTextOffsetDelta the offset delta in the last line of the replaced text
+   * @param replacedText the replaced text removed with this activity
+   * @param path the resource the activity belongs to
+   * @see LineSeparatorNormalizationUtil
+   */
+  public TextEditActivity(
+      User source,
+      TextPosition startPosition,
+      int newTextLineDelta,
+      int newTextOffsetDelta,
+      String newText,
+      int replacedTextLineDelta,
+      int replacedTextOffsetDelta,
+      String replacedText,
+      SPath path) {
 
     super(source, path);
 
-    if (text == null) throw new IllegalArgumentException("Text cannot be null");
-    if (replacedText == null) throw new IllegalArgumentException("ReplacedText cannot be null");
-    if (path == null) throw new IllegalArgumentException("Editor cannot be null");
+    if (startPosition == null || !startPosition.isValid())
+      throw new IllegalArgumentException("Start position must be valid");
 
-    this.offset = offset;
-    this.text = text;
+    if (newTextLineDelta < 0)
+      throw new IllegalArgumentException("New text line delta must not be negative");
+    if (newTextOffsetDelta < 0)
+      throw new IllegalArgumentException("New text offset delta must not be negative");
+
+    if (replacedTextLineDelta < 0)
+      throw new IllegalArgumentException("Replaced text line delta must not be negative");
+    if (replacedTextOffsetDelta < 0)
+      throw new IllegalArgumentException("Replaced text offset delta must not be negative");
+
+    if (newText == null) throw new IllegalArgumentException("Text must not be null");
+    if (replacedText == null) throw new IllegalArgumentException("ReplacedText must not be null");
+
+    assert !newText.contains("\r\n");
+    assert !replacedText.contains("\r\n");
+
+    if (path == null) throw new IllegalArgumentException("Resource must not be null");
+
+    this.startPosition = startPosition;
+
+    this.newTextLineDelta = newTextLineDelta;
+    this.newTextOffsetDelta = newTextOffsetDelta;
+
+    this.newText = newText;
+
+    this.replacedTextLineDelta = replacedTextLineDelta;
+    this.replacedTextOffsetDelta = replacedTextOffsetDelta;
+
     this.replacedText = replacedText;
   }
 
-  public int getOffset() {
-    return offset;
+  /**
+   * Returns the position at which the text edit activity applies.
+   *
+   * @return the position at which the text edit activity applies
+   */
+  public TextPosition getStartPosition() {
+    return startPosition;
   }
 
-  public String getText() {
-    return text;
+  /**
+   * Returns the position at which the new text added by this activity ends.
+   *
+   * @return the position at which the new text added by this activity ends
+   */
+  public TextPosition getNewEndPosition() {
+    if (newTextLineDelta == 0) {
+      int lineNumber = startPosition.getLineNumber();
+      int inLineOffset = startPosition.getInLineOffset() + newTextOffsetDelta;
+
+      return new TextPosition(lineNumber, inLineOffset);
+
+    } else {
+      int lineNumber = startPosition.getLineNumber() + newTextLineDelta;
+
+      return new TextPosition(lineNumber, newTextOffsetDelta);
+    }
   }
 
+  /**
+   * Returns the new text added by this text activity.
+   *
+   * <p>The returned text only uses normalized line separators, meaning it doesn't contain any line
+   * separators besides the {@link LineSeparatorNormalizationUtil#NORMALIZED_LINE_SEPARATOR}.
+   *
+   * @return the new text added by this text activity
+   * @see LineSeparatorNormalizationUtil
+   */
+  public String getNewText() {
+    return newText;
+  }
+
+  /**
+   * Returns the replaced text removed by this text activity.
+   *
+   * <p>The returned text only uses normalized line separators, meaning it doesn't contain any line
+   * separators besides the {@link LineSeparatorNormalizationUtil#NORMALIZED_LINE_SEPARATOR}.
+   *
+   * @return the replaced text removed by this text activity
+   * @see LineSeparatorNormalizationUtil
+   */
   public String getReplacedText() {
     return replacedText;
   }
 
   @Override
   public String toString() {
-    String newText = StringEscapeUtils.escapeJava(StringUtils.abbreviate(text, 150));
+    String newText = StringEscapeUtils.escapeJava(StringUtils.abbreviate(this.newText, 150));
     String oldText = StringEscapeUtils.escapeJava(StringUtils.abbreviate(replacedText, 150));
-    return "TextEditActivity(offset: "
-        + offset
+    return "TextEditActivity(start: "
+        + startPosition
+        + ", new text line delta: "
+        + newTextLineDelta
+        + ", new text offset delta: "
+        + newTextOffsetDelta
         + ", new: '"
         + newText
-        + "', old: '"
+        + "', replaced text line delta: "
+        + replacedTextLineDelta
+        + ", replaced text offset delta: "
+        + replacedTextOffsetDelta
+        + ", old: '"
         + oldText
         + "', path: "
         + getPath()
@@ -94,12 +252,15 @@ public class TextEditActivity extends AbstractResourceActivity {
 
   @Override
   public int hashCode() {
-    final int prime = 31;
-    int result = super.hashCode();
-    result = prime * result + offset;
-    result = prime * result + Objects.hashCode(replacedText);
-    result = prime * result + Objects.hashCode(text);
-    return result;
+    return Objects.hash(
+        super.hashCode(),
+        startPosition,
+        newTextLineDelta,
+        newTextOffsetDelta,
+        newText,
+        replacedTextLineDelta,
+        replacedTextOffsetDelta,
+        replacedText);
   }
 
   @Override
@@ -110,55 +271,45 @@ public class TextEditActivity extends AbstractResourceActivity {
 
     TextEditActivity other = (TextEditActivity) obj;
 
-    if (this.offset != other.offset) return false;
-    if (!Objects.equals(this.replacedText, other.replacedText)) return false;
-    if (!Objects.equals(this.text, other.text)) return false;
-
-    return true;
+    return Objects.equals(this.startPosition, other.startPosition)
+        && this.newTextLineDelta == other.newTextLineDelta
+        && this.newTextOffsetDelta == other.newTextOffsetDelta
+        && Objects.equals(this.newText, other.newText)
+        && this.replacedTextLineDelta == other.replacedTextLineDelta
+        && this.replacedTextOffsetDelta == other.replacedTextOffsetDelta
+        && Objects.equals(this.replacedText, other.replacedText);
   }
 
   /**
-   * Compare text edit information without source settings.
+   * Convert this text edit activity to a matching Operation.
    *
-   * @param obj TextEditActivity Object
-   * @return true if edit information equals. false otherwise.
+   * @see InsertOperation
+   * @see DeleteOperation
+   * @see SplitOperation
    */
-  public boolean sameLike(Object obj) {
-    if (obj instanceof TextEditActivity) {
-      TextEditActivity other = (TextEditActivity) obj;
-      return (this.offset == other.offset)
-          && (this.getPath() != null)
-          && (other.getPath() != null)
-          && this.getPath().equals(other.getPath())
-          && this.text.equals(other.text)
-          && (this.replacedText.equals(other.replacedText));
-    }
-    return false;
-  }
-
-  /** Convert this TextEditActivity to an Operation */
   public Operation toOperation() {
 
     // delete Activity
-    if ((replacedText.length() > 0) && (text.length() == 0)) {
-      return new DeleteOperation(offset, replacedText);
+    if ((replacedText.length() > 0) && (newText.length() == 0)) {
+      return new DeleteOperation(
+          startPosition, replacedTextLineDelta, replacedTextOffsetDelta, replacedText);
     }
 
     // insert Activity
-    if ((replacedText.length() == 0) && (text.length() > 0)) {
-      return new InsertOperation(offset, text);
+    if ((replacedText.length() == 0) && (newText.length() > 0)) {
+      return new InsertOperation(startPosition, newTextLineDelta, newTextOffsetDelta, newText);
     }
 
     // replace operation has to be split into delete and insert operation
-    if ((replacedText.length() > 0) && (text.length() > 0)) {
+    //noinspection ConstantConditions
+    if ((replacedText.length() > 0) && (newText.length() > 0)) {
       return new SplitOperation(
-          new DeleteOperation(offset, replacedText), new InsertOperation(offset, text));
+          new DeleteOperation(
+              startPosition, replacedTextLineDelta, replacedTextOffsetDelta, replacedText),
+          new InsertOperation(startPosition, newTextLineDelta, newTextOffsetDelta, newText));
     }
 
-    // Cannot happen
-    // assert false; seems it can
-
-    log.warn("NoOp Text edit: new '" + text + "' old '" + replacedText + "'");
+    log.warn("NoOp Text edit: new '" + newText + "' old '" + replacedText + "'");
     return new NoOperation();
   }
 

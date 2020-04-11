@@ -1,6 +1,7 @@
 package saros.intellij.ui.views.buttons;
 
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 import saros.intellij.ui.Messages;
 import saros.intellij.ui.actions.LeaveSessionAction;
 import saros.intellij.ui.util.IconManager;
@@ -19,11 +20,11 @@ public class LeaveSessionButton extends AbstractSessionToolbarButton {
    *
    * <p>LeaveSessionButton is created as disabled.
    */
-  public LeaveSessionButton(Project project) {
+  public LeaveSessionButton(@NotNull Project project) {
     super(
         project,
         LeaveSessionAction.NAME,
-        Messages.LeaveSessionButton_tooltip,
+        Messages.LeaveSessionButton_leave_tooltip,
         IconManager.LEAVE_SESSION_ICON);
 
     addActionListener(actionEvent -> new LeaveSessionAction(project).execute());
@@ -33,17 +34,22 @@ public class LeaveSessionButton extends AbstractSessionToolbarButton {
   }
 
   @Override
-  void disposeComponents() {
-    // NOP
-  }
-
-  @Override
   void sessionStarted(ISarosSession newSarosSession) {
-    setEnabledFromUIThread(true);
+    setEnabled(true);
+
+    if (newSarosSession.isHost()) {
+      setButtonIcon(IconManager.TERMINATE_SESSION_ICON);
+      setToolTipText(Messages.LeaveSessionButton_terminate_tooltip);
+    }
   }
 
   @Override
   void sessionEnded(ISarosSession oldSarosSession, SessionEndReason reason) {
-    setEnabledFromUIThread(false);
+    setEnabled(false);
+
+    if (oldSarosSession.isHost()) {
+      setButtonIcon(IconManager.LEAVE_SESSION_ICON);
+      setToolTipText(Messages.LeaveSessionButton_leave_tooltip);
+    }
   }
 }

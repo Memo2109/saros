@@ -10,7 +10,6 @@ import saros.activities.IActivity;
 import saros.activities.SPath;
 import saros.activities.StartFollowingActivity;
 import saros.activities.StopFollowingActivity;
-import saros.activities.TextEditActivity;
 import saros.activities.TextSelectionActivity;
 import saros.activities.ViewportActivity;
 import saros.context.IContextFactory;
@@ -170,22 +169,7 @@ public class FollowModeManager implements Startable {
 
         @Override
         public void receive(TextSelectionActivity activity) {
-          TextSelection selection = new TextSelection(activity.getOffset(), activity.getLength());
-
-          editorManager.adjustViewport(activity.getPath(), followeeRange(), selection);
-        }
-
-        /**
-         * {@inheritDoc}
-         *
-         * <p>TODO Find out whether this is actually necessary. If we receive a
-         * TextSelectionActivity for each cursor movement, then we don't need to listen for edits as
-         * well.
-         */
-        @Override
-        public void receive(TextEditActivity activity) {
-          int cursorOffset = activity.getOffset() + activity.getText().length();
-          TextSelection selection = new TextSelection(cursorOffset, 0);
+          TextSelection selection = activity.getSelection();
 
           editorManager.adjustViewport(activity.getPath(), followeeRange(), selection);
         }

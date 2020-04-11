@@ -8,6 +8,7 @@ import java.io.UnsupportedEncodingException;
 import java.nio.charset.Charset;
 import org.apache.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import saros.activities.SPath;
 import saros.concurrent.jupiter.Operation;
 import saros.concurrent.jupiter.internal.text.DeleteOperation;
@@ -27,7 +28,7 @@ import saros.session.User;
 /** This class applies the logic for activities that were received from remote. */
 public class LocalEditorManipulator {
 
-  private static final Logger LOG = Logger.getLogger(LocalEditorManipulator.class);
+  private static final Logger log = Logger.getLogger(LocalEditorManipulator.class);
 
   private final AnnotationManager annotationManager;
   private final ISarosSession sarosSession;
@@ -50,19 +51,21 @@ public class LocalEditorManipulator {
   }
 
   /**
-   * Opens an editor for the passed virtualFile, adds it to the pool of currently open editors and
-   * calls {@link EditorManager#startEditor(Editor)} with it.
+   * Opens an editor for the passed virtualFile.
+   *
+   * <p>If the editor is a text editor, it is also added to the pool of currently open editors and
+   * {@link EditorManager#startEditor(Editor)} is called with it.
    *
    * <p><b>Note:</b> This does only work for shared resources.
    *
    * @param path path of the file to open
    * @param activate activate editor after opening
    * @return the editor for the given path, or <code>null</code> if the file does not exist or is
-   *     not shared
+   *     not shared or can not be represented by a text editor
    */
   public Editor openEditor(@NotNull SPath path, boolean activate) {
     if (!sarosSession.isShared(path.getResource())) {
-      LOG.warn("Ignored open editor request for path " + path + " as it is not shared");
+      log.warn("Ignored open editor request for path " + path + " as it is not shared");
 
       return null;
     }
@@ -70,7 +73,7 @@ public class LocalEditorManipulator {
     VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
 
     if (virtualFile == null || !virtualFile.exists()) {
-      LOG.warn(
+      log.warn(
           "Could not open Editor for path "
               + path
               + " as a "
@@ -83,10 +86,16 @@ public class LocalEditorManipulator {
 
     Editor editor = ProjectAPI.openEditor(project, virtualFile, activate);
 
+    if (editor == null) {
+      log.debug("Ignoring non-text editor for file " + virtualFile);
+
+      return null;
+    }
+
     manager.startEditor(editor);
     editorPool.add(path, editor);
 
-    LOG.debug("Opened Editor " + editor + " for file " + virtualFile);
+    log.debug("Opened Editor " + editor + " for file " + virtualFile);
 
     return editor;
   }
@@ -99,12 +108,12 @@ public class LocalEditorManipulator {
   public void closeEditor(SPath path) {
     editorPool.removeEditor(path);
 
-    LOG.debug("Removed editor for path " + path + " from EditorPool");
+    log.debug("Removed editor for path " + path + " from EditorPool");
 
     VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
 
     if (virtualFile == null || !virtualFile.exists()) {
-      LOG.warn(
+      log.warn(
           "Could not close Editor for path "
               + path
               + " as a "
@@ -119,7 +128,7 @@ public class LocalEditorManipulator {
       ProjectAPI.closeEditor(project, virtualFile);
     }
 
-    LOG.debug("Closed editor for file " + virtualFile);
+    log.debug("Closed editor for file " + virtualFile);
   }
 
   /**
@@ -128,43 +137,15 @@ public class LocalEditorManipulator {
    *
    * @param path the path of the file whose document should be modified
    * @param operations the operations to apply to the document
+   * @param calculationEditor an editor for the file; this might be a background editor (see {@link
+   *     BackgroundEditorPool})
    */
-  void applyTextOperations(SPath path, Operation operations) {
+  void applyTextOperations(
+      @NotNull SPath path, @NotNull Operation operations, @NotNull Editor calculationEditor) {
+
     Project project = path.getProject().adaptTo(IntelliJProjectImpl.class).getModule().getProject();
 
-    Document doc = editorPool.getDocument(path);
-
-    /*
-     * If the document was not opened in an editor yet, it is not in the
-     * editorPool so we have to create it temporarily here.
-     */
-    if (doc == null) {
-      VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
-
-      if (virtualFile == null || !virtualFile.exists()) {
-        LOG.warn(
-            "Could not apply TextOperations "
-                + operations
-                + " as the VirtualFile for path "
-                + path
-                + " does not exist or could not be found");
-
-        return;
-      }
-
-      doc = DocumentAPI.getDocument(virtualFile);
-
-      if (doc == null) {
-        LOG.warn(
-            "Could not apply TextOperations "
-                + operations
-                + " as the Document for VirtualFile "
-                + virtualFile
-                + " could not be found");
-
-        return;
-      }
-    }
+    Document doc = calculationEditor.getDocument();
 
     try {
       /*
@@ -174,15 +155,25 @@ public class LocalEditorManipulator {
       manager.setLocalDocumentModificationHandlersEnabled(false);
 
       for (ITextOperation op : operations.getTextOperations()) {
+        int start = EditorAPI.calculateOffset(calculationEditor, op.getStartPosition());
+        int end = EditorAPI.calculateOffset(calculationEditor, op.getEndPosition());
+
+        /*
+         * Intellij internally always uses UNIX line separators for editor content
+         * -> no line ending denormalization necessary as normalized format matches editor format
+         */
         if (op instanceof DeleteOperation) {
-          DocumentAPI.deleteText(
-              project, doc, op.getPosition(), op.getPosition() + op.getTextLength());
+          DocumentAPI.deleteText(project, doc, start, end);
+
         } else {
           boolean writePermission = doc.isWritable();
+
           if (!writePermission) {
             doc.setReadOnly(false);
           }
-          DocumentAPI.insertText(project, doc, op.getPosition(), op.getText());
+
+          DocumentAPI.insertText(project, doc, start, op.getText());
+
           if (!writePermission) {
             doc.setReadOnly(true);
           }
@@ -210,11 +201,13 @@ public class LocalEditorManipulator {
    *     <code>null</code>
    * @see IEditorManager#adjustViewport(SPath, LineRange, TextSelection)
    */
-  public void adjustViewport(@NotNull Editor editor, LineRange range, TextSelection selection) {
-    if (selection == null && range == null) {
+  public void adjustViewport(
+      @NotNull Editor editor, @Nullable LineRange range, @Nullable TextSelection selection) {
+
+    if ((selection == null || selection.isEmpty()) && range == null) {
       VirtualFile file = DocumentAPI.getVirtualFile(editor.getDocument());
 
-      LOG.warn(
+      log.warn(
           "Could not adjust viewport for "
               + file
               + " as no target location was given: given line range and text selection were null.");
@@ -235,18 +228,13 @@ public class LocalEditorManipulator {
       remoteEndLine = range.getStartLine() + range.getNumberOfLines();
 
     } else {
-      int startOffset = selection.getOffset();
-      int endOffset = selection.getOffset() + selection.getLength();
-
-      LineRange selectionRange = EditorAPI.getLineRange(editor, startOffset, endOffset);
-
-      remoteStartLine = selectionRange.getStartLine();
-      remoteEndLine = selectionRange.getStartLine() + selectionRange.getNumberOfLines();
+      remoteStartLine = selection.getStartPosition().getLineNumber();
+      remoteEndLine = selection.getEndPosition().getLineNumber();
     }
 
     if (localStartLine <= remoteStartLine && localEndLine >= remoteEndLine) {
-      if (LOG.isTraceEnabled()) {
-        LOG.trace(
+      if (log.isTraceEnabled()) {
+        log.trace(
             "Ignoring viewport change request as given viewport is already completely visible."
                 + " local viewport: "
                 + localStartLine
@@ -297,7 +285,7 @@ public class LocalEditorManipulator {
   public void handleContentRecovery(SPath path, byte[] content, String encoding, User source) {
     VirtualFile virtualFile = VirtualFileConverter.convertToVirtualFile(path);
     if (virtualFile == null) {
-      LOG.warn(
+      log.warn(
           "Could not recover file content of "
               + path
               + " as it could not be converted to a VirtualFile.");
@@ -309,7 +297,7 @@ public class LocalEditorManipulator {
 
     Document document = DocumentAPI.getDocument(virtualFile);
     if (document == null) {
-      LOG.warn(
+      log.warn(
           "Could not recover file content of "
               + path
               + " as no valid Document representation was returned by the IntelliJ API.");
@@ -326,7 +314,7 @@ public class LocalEditorManipulator {
     try {
       text = new String(content, encoding);
     } catch (UnsupportedEncodingException e) {
-      LOG.warn("Could not decode text using given encoding. Using default instead.", e);
+      log.warn("Could not decode text using given encoding. Using default instead.", e);
 
       text = new String(content);
 
@@ -372,6 +360,12 @@ public class LocalEditorManipulator {
     Editor editor = null;
     if (ProjectAPI.isOpen(project, virtualFile)) {
       editor = ProjectAPI.openEditor(project, virtualFile, false);
+
+      if (editor == null) {
+        log.warn("Could not obtain text editor for open, recovered file " + virtualFile);
+
+        return;
+      }
     }
 
     annotationManager.addContributionAnnotation(source, file, 0, documentLength, editor);

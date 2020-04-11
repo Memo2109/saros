@@ -8,6 +8,7 @@ import saros.communication.extensions.ActivitiesExtension;
 import saros.communication.extensions.CancelInviteExtension;
 import saros.communication.extensions.CancelProjectNegotiationExtension;
 import saros.communication.extensions.ConnectionEstablishedExtension;
+import saros.communication.extensions.InfoExchangeExtension;
 import saros.communication.extensions.InvitationAcceptedExtension;
 import saros.communication.extensions.InvitationAcknowledgedExtension;
 import saros.communication.extensions.InvitationCompletedExtension;
@@ -21,14 +22,11 @@ import saros.communication.extensions.PingExtension;
 import saros.communication.extensions.PongExtension;
 import saros.communication.extensions.ProjectNegotiationMissingFilesExtension;
 import saros.communication.extensions.ProjectNegotiationOfferingExtension;
-import saros.communication.extensions.SessionStatusRequestExtension;
-import saros.communication.extensions.SessionStatusResponseExtension;
 import saros.communication.extensions.StartActivityQueuingRequest;
 import saros.communication.extensions.StartActivityQueuingResponse;
 import saros.communication.extensions.UserFinishedProjectNegotiationExtension;
 import saros.communication.extensions.UserListExtension;
 import saros.communication.extensions.UserListReceivedExtension;
-import saros.communication.extensions.VersionExchangeExtension;
 import saros.net.util.XMPPUtils;
 import saros.net.xmpp.XMPPConnectionService;
 import saros.repackaged.picocontainer.ComponentMonitor;
@@ -65,7 +63,7 @@ import saros.repackaged.picocontainer.injectors.Reinjector;
  */
 public class ContainerContext implements IContainerContext {
 
-  private static final Logger LOG = Logger.getLogger(ContainerContext.class);
+  private static final Logger log = Logger.getLogger(ContainerContext.class);
 
   private static final String SAROS_DATA_DIRECTORY = ".saros";
 
@@ -115,8 +113,8 @@ public class ContainerContext implements IContainerContext {
      */
 
     try {
-      // Version exchange extension used in session negotiation
-      Class.forName(VersionExchangeExtension.class.getName());
+      // Info exchange extension used outside of Session
+      Class.forName(InfoExchangeExtension.class.getName());
 
       // Session negotiation extensions
       Class.forName(CancelInviteExtension.class.getName());
@@ -149,8 +147,6 @@ public class ContainerContext implements IContainerContext {
       // Server extensions
       Class.forName(JoinSessionRequestExtension.class.getName());
       Class.forName(JoinSessionRejectedExtension.class.getName());
-      Class.forName(SessionStatusRequestExtension.class.getName());
-      Class.forName(SessionStatusResponseExtension.class.getName());
     } catch (ClassNotFoundException e) {
       throw new RuntimeException(e);
     }
@@ -166,7 +162,7 @@ public class ContainerContext implements IContainerContext {
 
     if (initialized) return;
 
-    LOG.info("initializing context...");
+    log.info("initializing context...");
 
     for (IContextFactory factory : factories) factory.createComponents(container);
 
@@ -185,16 +181,16 @@ public class ContainerContext implements IContainerContext {
      */
     final List<Object> components = container.getComponents();
 
-    if (LOG.isDebugEnabled()) {
+    if (log.isDebugEnabled()) {
       for (final Object component : components) {
-        LOG.debug("created context component: " + component.getClass().getName());
+        log.debug("created context component: " + component.getClass().getName());
       }
     }
 
     container.start();
     initialized = true;
 
-    LOG.info("successfully initialized context");
+    log.info("successfully initialized context");
   }
 
   /**
@@ -206,11 +202,11 @@ public class ContainerContext implements IContainerContext {
 
     if (!initialized || disposed) return;
 
-    LOG.info("disposing context...");
+    log.info("disposing context...");
     container.stop();
     disposed = true;
     container.dispose();
-    LOG.info("successfully disposed context");
+    log.info("successfully disposed context");
   }
 
   private void initAccountStore(XMPPAccountStore store) {
@@ -235,7 +231,7 @@ public class ContainerContext implements IContainerContext {
     if (homeDirectory == null) homeDirectory = System.getProperty("user.home");
 
     if (homeDirectory == null) {
-      LOG.warn("home directory not set, cannot save and load account data");
+      log.warn("home directory not set, cannot save and load account data");
       return;
     }
 

@@ -7,6 +7,7 @@ import org.apache.log4j.Logger;
 import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.IDocument;
+import org.eclipse.jface.text.ITextSelection;
 import org.eclipse.jface.text.ITextViewer;
 import org.eclipse.jface.text.Position;
 import org.eclipse.jface.text.source.Annotation;
@@ -35,7 +36,7 @@ import saros.util.Predicate;
  */
 public class LocationAnnotationManager {
 
-  private static final Logger LOG = Logger.getLogger(LocationAnnotationManager.class);
+  private static final Logger log = Logger.getLogger(LocationAnnotationManager.class);
 
   private AnnotationModelHelper annotationModelHelper;
 
@@ -64,7 +65,7 @@ public class LocationAnnotationManager {
       return;
 
     SWTUtils.runSafeSWTAsync(
-        LOG,
+        log,
         new Runnable() {
 
           @Override
@@ -150,7 +151,7 @@ public class LocationAnnotationManager {
       Position position = new Position(start, end - start);
       model.addAnnotation(annotation, position);
     } catch (BadLocationException e) {
-      LOG.warn("Internal Error:", e);
+      log.warn("Internal Error:", e);
     }
   }
 
@@ -211,8 +212,10 @@ public class LocationAnnotationManager {
       return;
     }
 
-    int offset = selection.getOffset();
-    int length = selection.getLength();
+    ITextSelection offsetSelection = EditorAPI.calculateOffsets(editorPart, selection);
+
+    int offset = offsetSelection.getOffset();
+    int length = offsetSelection.getLength();
     boolean isCursor = length == 0;
 
     // TODO For better performance: Currently, all selection-related

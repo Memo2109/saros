@@ -1,6 +1,5 @@
 package saros.intellij.project;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -16,12 +15,14 @@ import saros.activities.SPath;
 import saros.filesystem.IFile;
 import saros.filesystem.IFolder;
 import saros.intellij.context.SharedIDEContext;
+import saros.intellij.editor.EditorManager;
 import saros.intellij.editor.LocalEditorHandler;
 import saros.intellij.editor.LocalEditorManipulator;
 import saros.intellij.editor.SelectedEditorStateSnapshot;
 import saros.intellij.editor.SelectedEditorStateSnapshotFactory;
 import saros.intellij.editor.annotations.AnnotationManager;
 import saros.intellij.eventhandler.IApplicationEventHandler.ApplicationEventHandlerType;
+import saros.intellij.runtime.EDTExecutor;
 import saros.repackaged.picocontainer.Startable;
 import saros.session.AbstractActivityConsumer;
 import saros.session.IActivityConsumer;
@@ -31,13 +32,14 @@ import saros.session.ISarosSession;
 /** The SharedResourcesManager creates and handles file and folder activities. */
 public class SharedResourcesManager implements Startable {
 
-  private static final Logger LOG = Logger.getLogger(SharedResourcesManager.class);
+  private static final Logger log = Logger.getLogger(SharedResourcesManager.class);
 
   private static final int DELETION_FLAGS = 0;
   private static final boolean FORCE = false;
   private static final boolean LOCAL = false;
 
   private final ISarosSession sarosSession;
+  private final EditorManager editorManager;
   private final SharedIDEContext sharedIDEContext;
   private final LocalEditorHandler localEditorHandler;
   private final LocalEditorManipulator localEditorManipulator;
@@ -46,22 +48,20 @@ public class SharedResourcesManager implements Startable {
 
   @Override
   public void start() {
-    ApplicationManager.getApplication()
-        .invokeAndWait(
-            () -> sarosSession.addActivityConsumer(consumer, Priority.ACTIVE),
-            ModalityState.defaultModalityState());
+    EDTExecutor.invokeAndWait(
+        () -> sarosSession.addActivityConsumer(consumer, Priority.ACTIVE),
+        ModalityState.defaultModalityState());
   }
 
   @Override
   public void stop() {
-    ApplicationManager.getApplication()
-        .invokeAndWait(
-            () -> sarosSession.removeActivityConsumer(consumer),
-            ModalityState.defaultModalityState());
+    EDTExecutor.invokeAndWait(
+        () -> sarosSession.removeActivityConsumer(consumer), ModalityState.defaultModalityState());
   }
 
   public SharedResourcesManager(
       ISarosSession sarosSession,
+      EditorManager editorManager,
       LocalEditorHandler localEditorHandler,
       LocalEditorManipulator localEditorManipulator,
       AnnotationManager annotationManager,
@@ -69,6 +69,7 @@ public class SharedResourcesManager implements Startable {
       SelectedEditorStateSnapshotFactory selectedEditorStateSnapshotFactory) {
 
     this.sarosSession = sarosSession;
+    this.editorManager = editorManager;
     this.localEditorHandler = localEditorHandler;
     this.localEditorManipulator = localEditorManipulator;
     this.annotationManager = annotationManager;
@@ -84,11 +85,11 @@ public class SharedResourcesManager implements Startable {
             return;
           }
 
-          LOG.trace("executing " + activity + " in " + Thread.currentThread().getName());
+          log.trace("executing " + activity + " in " + Thread.currentThread().getName());
 
           super.exec(activity);
 
-          LOG.trace("done executing " + activity);
+          log.trace("done executing " + activity);
         }
 
         @Override
@@ -96,7 +97,7 @@ public class SharedResourcesManager implements Startable {
           try {
             handleFileActivity(activity);
           } catch (IOException e) {
-            LOG.error("Failed to execute activity: " + activity, e);
+            log.error("Failed to execute activity: " + activity, e);
           }
         }
 
@@ -105,7 +106,7 @@ public class SharedResourcesManager implements Startable {
           try {
             handleFolderCreation(activity);
           } catch (IOException e) {
-            LOG.error("Failed to execute activity: " + activity, e);
+            log.error("Failed to execute activity: " + activity, e);
           }
         }
 
@@ -114,7 +115,7 @@ public class SharedResourcesManager implements Startable {
           try {
             handleFolderDeletion(activity);
           } catch (IOException e) {
-            LOG.error("Failed to execute activity: " + activity, e);
+            log.error("Failed to execute activity: " + activity, e);
           }
         }
       };
@@ -149,7 +150,7 @@ public class SharedResourcesManager implements Startable {
 
     SPath path = activity.getPath();
 
-    LOG.debug("performing recovery for file: " + activity.getPath().getFullPath());
+    log.debug("performing recovery for file: " + activity.getPath().getFullPath());
 
     FileActivity.Type type = activity.getType();
 
@@ -167,7 +168,7 @@ public class SharedResourcesManager implements Startable {
         handleFileDeletion(activity);
 
       } else {
-        LOG.warn("performing recovery for type " + type + " is not supported");
+        log.warn("performing recovery for type " + type + " is not supported");
       }
     } finally {
       /*
@@ -194,7 +195,7 @@ public class SharedResourcesManager implements Startable {
     IFile newFile = newPath.getFile();
 
     if (!oldFile.exists()) {
-      LOG.warn(
+      log.warn(
           "Could not move file "
               + oldFile
               + " as it does not exist."
@@ -216,6 +217,8 @@ public class SharedResourcesManager implements Startable {
 
     localEditorManipulator.closeEditor(oldPath);
 
+    cleanUpBackgroundEditorPool(oldPath);
+
     annotationManager.updateAnnotationPath(oldFile, newFile);
 
     try {
@@ -231,7 +234,7 @@ public class SharedResourcesManager implements Startable {
         try {
           selectedEditorStateSnapshot.replaceSelectedFile(oldFile, newFile);
         } catch (IllegalStateException e) {
-          LOG.warn("Failed to update the captured selected editor state", e);
+          log.warn("Failed to update the captured selected editor state", e);
         }
 
         selectedEditorStateSnapshot.applyHeldState();
@@ -242,8 +245,6 @@ public class SharedResourcesManager implements Startable {
     } finally {
       setFilesystemModificationHandlerEnabled(true);
     }
-
-    // TODO reset the vector time for the old file
   }
 
   private void handleFileDeletion(@NotNull FileActivity activity) throws IOException {
@@ -252,7 +253,7 @@ public class SharedResourcesManager implements Startable {
     IFile file = path.getFile();
 
     if (!file.exists()) {
-      LOG.warn("Could not delete file " + file + " as it does not exist.");
+      log.warn("Could not delete file " + file + " as it does not exist.");
 
       return;
     }
@@ -260,6 +261,8 @@ public class SharedResourcesManager implements Startable {
     if (localEditorHandler.isOpenEditor(path)) {
       localEditorManipulator.closeEditor(path);
     }
+
+    cleanUpBackgroundEditorPool(path);
 
     try {
       setFilesystemModificationHandlerEnabled(false);
@@ -273,8 +276,6 @@ public class SharedResourcesManager implements Startable {
     }
 
     annotationManager.removeAnnotations(file);
-
-    // TODO reset the vector time for the deleted file
   }
 
   private void handleFileCreation(@NotNull FileActivity activity) throws IOException {
@@ -283,7 +284,7 @@ public class SharedResourcesManager implements Startable {
     IFile file = path.getFile();
 
     if (file.exists()) {
-      LOG.warn("Could not create file " + file + " as it already exists.");
+      log.warn("Could not create file " + file + " as it already exists.");
 
       return;
     }
@@ -305,7 +306,7 @@ public class SharedResourcesManager implements Startable {
     IFolder folder = activity.getPath().getFolder();
 
     if (folder.exists()) {
-      LOG.warn("Could not create folder " + folder + " as it already exist.");
+      log.warn("Could not create folder " + folder + " as it already exist.");
 
       return;
     }
@@ -336,7 +337,7 @@ public class SharedResourcesManager implements Startable {
     IFolder folder = activity.getPath().getFolder();
 
     if (!folder.exists()) {
-      LOG.warn("Could not delete folder " + folder + " as it does not exist.");
+      log.warn("Could not delete folder " + folder + " as it does not exist.");
 
       return;
     }
@@ -360,5 +361,14 @@ public class SharedResourcesManager implements Startable {
   private void setFilesystemModificationHandlerEnabled(boolean enabled) {
     sharedIDEContext.setApplicationEventHandlersEnabled(
         ApplicationEventHandlerType.LOCAL_FILESYSTEM_MODIFICATION_HANDLER, enabled);
+  }
+
+  /**
+   * Releases and drops the held background editor for the deleted file if present.
+   *
+   * @param deletedFilePath the deleted file
+   */
+  private void cleanUpBackgroundEditorPool(@NotNull SPath deletedFilePath) {
+    editorManager.removeBackgroundEditorForPath(deletedFilePath);
   }
 }

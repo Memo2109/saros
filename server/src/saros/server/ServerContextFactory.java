@@ -5,8 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.commons.io.FileUtils;
 import org.apache.log4j.Logger;
-import saros.communication.connection.IProxyResolver;
-import saros.communication.connection.NullProxyResolver;
 import saros.context.AbstractContextFactory;
 import saros.context.IContextKeyBindings;
 import saros.filesystem.IChecksumCache;
@@ -44,7 +42,7 @@ import saros.synchronize.UISynchronizer;
  */
 public class ServerContextFactory extends AbstractContextFactory {
 
-  private static final Logger LOG = Logger.getLogger(ServerContextFactory.class);
+  private static final Logger log = Logger.getLogger(ServerContextFactory.class);
 
   @Override
   public void createComponents(MutablePicoContainer c) {
@@ -83,7 +81,6 @@ public class ServerContextFactory extends AbstractContextFactory {
    * dummies
    */
   private void addOptionalCoreInterfaceImplementations(MutablePicoContainer c) {
-    c.addComponent(IProxyResolver.class, NullProxyResolver.class);
     c.addComponent(IChecksumCache.class, NullChecksumCache.class);
   }
 
@@ -133,7 +130,7 @@ public class ServerContextFactory extends AbstractContextFactory {
                 try {
                   FileUtils.deleteDirectory(path.toFile());
                 } catch (IOException e) {
-                  LOG.warn("Could not remove temporary workspace folder", e);
+                  log.warn("Could not remove temporary workspace folder", e);
                 }
               }
             });

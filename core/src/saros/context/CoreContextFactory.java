@@ -2,6 +2,7 @@ package saros.context;
 
 import java.util.Arrays;
 import saros.account.XMPPAccountStore;
+import saros.communication.InfoManager;
 import saros.communication.chat.muc.MultiUserChatService;
 import saros.communication.chat.single.SingleUserChatService;
 import saros.communication.connection.ConnectionHandler;
@@ -29,8 +30,6 @@ import saros.net.upnp.internal.UPnPAccessImpl;
 import saros.net.upnp.internal.UPnPServiceImpl;
 import saros.net.xmpp.XMPPConnectionService;
 import saros.net.xmpp.contact.XMPPContactsService;
-import saros.net.xmpp.discovery.DiscoveryManager;
-import saros.net.xmpp.roster.RosterTracker;
 import saros.net.xmpp.subscription.SubscriptionHandler;
 import saros.observables.FileReplacementInProgressObservable;
 import saros.repackaged.picocontainer.BindKey;
@@ -60,6 +59,7 @@ public class CoreContextFactory extends AbstractContextFactory {
       Component.create(ConnectionHandler.class),
 
       // Version support
+      Component.create(InfoManager.class),
       Component.create(VersionManager.class),
       Component.create(MultiUserChatService.class),
       Component.create(SingleUserChatService.class),
@@ -79,14 +79,12 @@ public class CoreContextFactory extends AbstractContextFactory {
       // Network
       Component.create(DispatchThreadContext.class),
       Component.create(IConnectionManager.class, DataTransferManager.class),
-      Component.create(DiscoveryManager.class),
       Component.create(
           BindKey.bindKey(IStreamService.class, IContextKeyBindings.IBBStreamService.class),
           IBBStreamService.class),
       Component.create(
           BindKey.bindKey(IStreamService.class, IContextKeyBindings.Socks5StreamService.class),
           Socks5StreamService.class),
-      Component.create(RosterTracker.class),
       Component.create(XMPPConnectionService.class),
       Component.create(IStunService.class, StunServiceImpl.class),
       Component.create(SubscriptionHandler.class),

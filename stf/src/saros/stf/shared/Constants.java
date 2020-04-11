@@ -36,9 +36,6 @@ public interface Constants {
 
   public static final String PROJECT_SHARED_DECORATOR = get("SharedProjectDecorator_shared");
 
-  public static final String PROJECT_PARTIAL_SHARED_DECORATOR =
-      get("SharedProjectDecorator_shared_partial");
-
   /* *********************************************
    *
    * Basic Wigets
@@ -48,6 +45,7 @@ public interface Constants {
   // Title of Buttons
   public static final String YES = "Yes";
   public static final String OK = "OK";
+  public static final String APPLY_AND_CLOSE = "Apply and Close";
   public static final String NO = "No";
   public static final String CANCEL = "Cancel";
   public static final String FINISH = "Finish";
@@ -302,8 +300,6 @@ public interface Constants {
    */
   public static final String VIEW_SAROS = get("view_saros");
   public static final String VIEW_SAROS_ID = get("view_saros_id");
-  public static final String VIEW_SAROS_WHITEBOARD = get("view_saros_whiteboard");
-  public static final String VIEW_SAROS_WHITEBOARD_ID = get("view_saros_whiteboard_id");
   public static final String SHELL_REQUEST_OF_SUBSCRIPTION_RECEIVED =
       get("SubscriptionManager_incoming_subscription_request_title");
   public static final String SHELL_SERVER_NOT_FOUND = get("shell_server_not_found");

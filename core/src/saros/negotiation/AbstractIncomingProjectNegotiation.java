@@ -45,7 +45,7 @@ import saros.session.SessionEndReason;
  */
 public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiation {
 
-  private static final Logger LOG = Logger.getLogger(AbstractIncomingProjectNegotiation.class);
+  private static final Logger log = Logger.getLogger(AbstractIncomingProjectNegotiation.class);
 
   private static int MONITOR_WORK_SCALE = 1000;
 
@@ -189,22 +189,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
         final String projectID = entry.getKey();
         final IProject project = entry.getValue();
 
-        final boolean isPartialRemoteProject = getProjectNegotiationData(projectID).isPartial();
-
-        final FileList remoteFileList = getProjectNegotiationData(projectID).getFileList();
-
-        List<IResource> resources = null;
-
-        if (isPartialRemoteProject) {
-
-          final List<String> paths = remoteFileList.getPaths();
-
-          resources = new ArrayList<IResource>(paths.size());
-
-          for (final String path : paths) resources.add(getResource(project, path));
-        }
-
-        session.addSharedResources(project, projectID, resources);
+        session.addSharedProject(project, projectID);
       }
     } catch (Exception e) {
       exception = e;
@@ -348,7 +333,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
       final Map<String, IProject> localProjectMapping, final IProgressMonitor monitor)
       throws SarosCancellationException, IOException {
 
-    LOG.debug(this + " : computing file and folder differences");
+    log.debug(this + " : computing file and folder differences");
 
     monitor.beginTask(
         "Computing project(s) difference(s)...", localProjectMapping.size() * MONITOR_WORK_SCALE);
@@ -360,26 +345,18 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
       final String id = entry.getKey();
       final IProject project = entry.getValue();
 
-      // TODO optimize for partial shared projects
-
       final FileList localProjectFileList =
           FileListFactory.createFileList(
               project,
-              null,
               checksumCache,
               new SubProgressMonitor(
                   monitor, 1 * MONITOR_WORK_SCALE, SubProgressMonitor.SUPPRESS_BEGINTASK));
 
       final ProjectNegotiationData data = getProjectNegotiationData(id);
 
-      final FileListDiff diff =
-          FileListDiff.diff(localProjectFileList, data.getFileList(), data.isPartial());
+      final FileListDiff diff = FileListDiff.diff(localProjectFileList, data.getFileList());
 
       checkCancellation(CancelOption.NOTIFY_PEER);
-
-      if (data.isPartial()
-          && (!diff.getRemovedFiles().isEmpty() || !diff.getRemovedFolders().isEmpty()))
-        throw new IllegalStateException("partial sharing cannot delete existing resources");
 
       result.put(id, diff);
     }
@@ -403,7 +380,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
       final Map<String, IProject> localProjectMapping, final Map<String, FileListDiff> diffs)
       throws IOException {
 
-    LOG.debug(this + " : deleting files and folders, creating empty folders");
+    log.debug(this + " : deleting files and folders, creating empty folders");
 
     final List<FileList> result = new ArrayList<FileList>();
 
@@ -427,7 +404,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
 
         if (resource.exists()) {
 
-          if (LOG.isTraceEnabled()) LOG.trace("deleting resource: " + resource);
+          if (log.isTraceEnabled()) log.trace("deleting resource: " + resource);
 
           resource.delete(IResource.KEEP_HISTORY);
         }
@@ -438,7 +415,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
 
         if (!folder.exists()) {
 
-          if (LOG.isTraceEnabled()) LOG.trace("creating folder(s): " + folder);
+          if (log.isTraceEnabled()) log.trace("creating folder(s): " + folder);
 
           FileSystem.createFolder(folder);
         }
@@ -449,7 +426,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
       missingFiles.addAll(diff.getAddedFiles());
       missingFiles.addAll(diff.getAlteredFiles());
 
-      LOG.debug(this + " : " + missingFiles.size() + " file(s) must be synchronized");
+      log.debug(this + " : " + missingFiles.size() + " file(s) must be synchronized");
 
       /*
        * We send an empty file list to the host as a notification that we
@@ -535,7 +512,7 @@ public abstract class AbstractIncomingProjectNegotiation extends ProjectNegotiat
    * @throws SarosCancellationException on user cancellation
    */
   protected void awaitTransferRequest() throws SarosCancellationException {
-    LOG.debug(this + ": waiting for incoming transfer request");
+    log.debug(this + ": waiting for incoming transfer request");
     try {
       while (!transferListener.hasReceived()) {
         checkCancellation(CancelOption.NOTIFY_PEER);

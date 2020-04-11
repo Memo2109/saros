@@ -8,8 +8,6 @@ import org.osgi.service.prefs.Preferences;
 import saros.awareness.AwarenessInformationCollector;
 import saros.communication.SkypeManager;
 import saros.communication.chat.muc.negotiation.MUCNegotiationManager;
-import saros.communication.connection.IProxyResolver;
-import saros.communication.connection.Socks5ProxyResolver;
 import saros.context.AbstractContextFactory;
 import saros.context.IContextKeyBindings;
 import saros.editor.EditorManager;
@@ -37,10 +35,7 @@ import saros.synchronize.internal.EclipseSWTSynchronizer;
 import saros.ui.eventhandler.ConnectingFailureHandler;
 import saros.ui.eventhandler.HostLeftAloneInSessionHandler;
 import saros.ui.eventhandler.JoinSessionRejectedHandler;
-import saros.ui.eventhandler.JoinSessionRequestHandler;
 import saros.ui.eventhandler.NegotiationHandler;
-import saros.ui.eventhandler.ServerPreferenceHandler;
-import saros.ui.eventhandler.SessionStatusRequestHandler;
 import saros.ui.eventhandler.SessionViewOpener;
 import saros.ui.eventhandler.UserStatusChangeHandler;
 import saros.ui.eventhandler.XMPPAuthorizationHandler;
@@ -74,12 +69,11 @@ public class SarosEclipseContextFactory extends AbstractContextFactory {
       Component.create(HostLeftAloneInSessionHandler.class),
       Component.create(NegotiationHandler.class),
       Component.create(UserStatusChangeHandler.class),
-      Component.create(JoinSessionRequestHandler.class),
-      Component.create(JoinSessionRejectedHandler.class),
-      Component.create(ServerPreferenceHandler.class),
-      Component.create(SessionStatusRequestHandler.class),
       Component.create(XMPPAuthorizationHandler.class),
       Component.create(ConnectingFailureHandler.class),
+      // UI handlers Saros Server Access
+      Component.create(JoinSessionRejectedHandler.class),
+
       // Cache support
       /*
        * TODO avoid direct creation as this will become tricky especially
@@ -98,9 +92,6 @@ public class SarosEclipseContextFactory extends AbstractContextFactory {
 
       // SWT EDT support
       Component.create(UISynchronizer.class, EclipseSWTSynchronizer.class),
-
-      // Proxy Support for the XMPP server connection
-      Component.create(IProxyResolver.class, Socks5ProxyResolver.class),
 
       // Remote progress indication
       Component.create(

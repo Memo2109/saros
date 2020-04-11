@@ -4,6 +4,7 @@ sarosEclipse {
   addPdeNature = true
   createBundleJar = true
   addDependencies = true
+  pluginVersionQualifier = versionQualifier
 }
 
 sourceSets {
@@ -40,7 +41,6 @@ jar {
     include '*.properties'
     include 'readme.html'
     include 'plugin.xml'
-    include 'version.comp'
     include 'LICENSE'
     include 'CHANGELOG'
   }

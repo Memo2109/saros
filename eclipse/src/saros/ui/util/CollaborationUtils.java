@@ -3,18 +3,14 @@ package saros.ui.util;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.log4j.Logger;
 import org.eclipse.core.resources.IContainer;
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
@@ -48,7 +44,7 @@ import saros.util.ThreadUtils;
  */
 public class CollaborationUtils {
 
-  private static final Logger LOG = Logger.getLogger(CollaborationUtils.class);
+  private static final Logger log = Logger.getLogger(CollaborationUtils.class);
 
   @Inject private static ISarosSessionManager sessionManager;
 
@@ -68,10 +64,25 @@ public class CollaborationUtils {
    * @param contacts
    * @nonBlocking
    */
-  public static void startSession(List<IResource> resources, final List<JID> contacts) {
+  public static void startSession(final List<IResource> resources, final List<JID> contacts) {
+    assert resources.stream().allMatch(resource -> resource instanceof IProject)
+        : "Encountered non-project resource to share";
 
-    final Map<IProject, List<IResource>> newResources = acquireResources(resources, null);
+    final Set<IProject> projects =
+        resources.stream().map(resource -> (IProject) resource).collect(Collectors.toSet());
 
+    startSession(projects, contacts);
+  }
+
+  /**
+   * Starts a new session and shares the given projects with given contacts.<br>
+   * Does nothing if a {@link ISarosSession session} is already running.
+   *
+   * @param projects the projects share
+   * @param contacts the contacts to share the projects with
+   * @nonBlocking
+   */
+  public static void startSession(final Set<IProject> projects, final List<JID> contacts) {
     Job sessionStartupJob =
         new Job("Session Startup") {
 
@@ -80,8 +91,8 @@ public class CollaborationUtils {
             monitor.beginTask("Starting session...", IProgressMonitor.UNKNOWN);
 
             try {
-              refreshProjects(newResources.keySet(), null);
-              sessionManager.startSession(convert(newResources));
+              refreshProjects(projects, null);
+              sessionManager.startSession(convert(projects));
               Set<JID> participantsToAdd = new HashSet<JID>(contacts);
 
               ISarosSession session = sessionManager.getSession();
@@ -92,7 +103,7 @@ public class CollaborationUtils {
 
             } catch (Exception e) {
 
-              LOG.error("could not start a Saros session", e);
+              log.error("could not start a Saros session", e);
               return new Status(IStatus.ERROR, Saros.PLUGIN_ID, e.getMessage(), e);
             }
 
@@ -116,7 +127,7 @@ public class CollaborationUtils {
     Shell shell = SWTUtils.getShell();
 
     if (sarosSession == null) {
-      LOG.warn("cannot leave a non-running session");
+      log.warn("cannot leave a non-running session");
       return;
     }
 
@@ -145,7 +156,7 @@ public class CollaborationUtils {
 
     ThreadUtils.runSafeAsync(
         "StopSession",
-        LOG,
+        log,
         new Runnable() {
           @Override
           public void run() {
@@ -163,21 +174,36 @@ public class CollaborationUtils {
    */
   public static void addResourcesToSession(List<IResource> resourcesToAdd) {
 
+    if (resourcesToAdd.isEmpty()) return;
+
+    assert resourcesToAdd.stream().allMatch(resource -> resource instanceof IProject)
+        : "Encountered non-project resource to share";
+
+    final Set<IProject> projects =
+        resourcesToAdd.stream().map(resource -> (IProject) resource).collect(Collectors.toSet());
+
+    addResourcesToSession(projects);
+  }
+
+  /**
+   * Adds the given project resources to the session.<br>
+   * Does nothing if no {@link SarosSession session} is running.
+   *
+   * @param projectsToAdd the projects to add to the session
+   * @nonBlocking
+   */
+  public static void addResourcesToSession(Set<IProject> projectsToAdd) {
+
     final ISarosSession session = sessionManager.getSession();
 
     if (session == null) {
-      LOG.warn("cannot add resources to a non-running session");
+      log.warn("cannot add resources to a non-running session");
       return;
     }
 
-    final Map<IProject, List<IResource>> projectResources =
-        acquireResources(resourcesToAdd, session);
-
-    if (projectResources.isEmpty()) return;
-
     ThreadUtils.runSafeAsync(
         "AddResourceToSession",
-        LOG,
+        log,
         new Runnable() {
           @Override
           public void run() {
@@ -192,7 +218,7 @@ public class CollaborationUtils {
 
             final List<IProject> projectsToRefresh = new ArrayList<IProject>();
 
-            for (IProject project : projectResources.keySet()) {
+            for (IProject project : projectsToAdd) {
               if (!session.isShared(ResourceAdapterFactory.create(project)))
                 projectsToRefresh.add(project);
             }
@@ -200,14 +226,14 @@ public class CollaborationUtils {
             try {
               refreshProjects(projectsToRefresh, null);
             } catch (CoreException e) {
-              LOG.warn("failed to refresh projects", e);
+              log.warn("failed to refresh projects", e);
               /*
                * FIXME use a Job instead of a plain thread and so better
                * execption handling !
                */
             }
 
-            sessionManager.addResourcesToSession(convert(projectResources));
+            sessionManager.addProjectsToSession(convert(projectsToAdd));
           }
         });
   }
@@ -224,13 +250,13 @@ public class CollaborationUtils {
     final ISarosSession sarosSession = sessionManager.getSession();
 
     if (sarosSession == null) {
-      LOG.warn("cannot add contacts to a non-running session");
+      log.warn("cannot add contacts to a non-running session");
       return;
     }
 
     ThreadUtils.runSafeAsync(
         "AddContactToSession",
-        LOG,
+        log,
         new Runnable() {
           @Override
           public void run() {
@@ -264,160 +290,21 @@ public class CollaborationUtils {
 
       final Pair<Long, Long> fileCountAndSize;
 
-      final boolean isCompletelyShared = sarosSession.isCompletelyShared(project);
+      final List<IResource> resources =
+          Collections.singletonList(((EclipseProjectImpl) project).getDelegate());
 
-      final List<IResource> resources;
-
-      if (isCompletelyShared)
-        resources = Collections.singletonList(((EclipseProjectImpl) project).getDelegate());
-      else resources = ResourceAdapterFactory.convertBack(sarosSession.getSharedResources(project));
-
-      fileCountAndSize =
-          FileUtils.getFileCountAndSize(
-              resources,
-              isCompletelyShared ? true : false,
-              isCompletelyShared ? IContainer.EXCLUDE_DERIVED : IResource.NONE);
+      fileCountAndSize = FileUtils.getFileCountAndSize(resources, true, IContainer.EXCLUDE_DERIVED);
 
       result.append(
           String.format(
               "\nProject: %s (%s), Files: %d, Size: %s",
               project.getName(),
-              isCompletelyShared ? "complete" : "partial",
+              "complete",
               fileCountAndSize.getRight(),
               format(fileCountAndSize.getLeft())));
     }
 
     return result.toString();
-  }
-
-  /**
-   * Determines which of the the selected resources belong to fully shared projects or to partially
-   * shared ones. The result is returned as a {@link Map} of the following structure:
-   *
-   * <ul>
-   *   <li>fully shared project: {@link IProject} --> <code>null</code>
-   *   <li>partially shared project: {@link IProject} --> <code>List&lt;{@link IResource}&gt;</code>
-   * </ul>
-   *
-   * In case of partially shared project, this method also adds files and folders that are needed
-   * for a consistent project on the receiver's side, even when there were not selected by the user
-   * (e.g ".project" files).
-   *
-   * @param selectedResources
-   * @param sarosSession
-   * @return
-   */
-  private static Map<IProject, List<IResource>> acquireResources(
-      List<IResource> selectedResources, ISarosSession sarosSession) {
-
-    if (sarosSession != null) {
-      List<IResource> sharedResources =
-          ResourceAdapterFactory.convertBack(sarosSession.getSharedResources());
-      selectedResources.removeAll(sharedResources);
-    }
-
-    final int resourcesSize = selectedResources.size();
-
-    IResource[] preSortedResources = new IResource[resourcesSize];
-
-    int frontIdx = 0;
-    int backIdx = resourcesSize - 1;
-
-    // move projects to the front so the algorithm is working as expected
-    for (IResource resource : selectedResources) {
-      if (resource.getType() == IResource.PROJECT) preSortedResources[frontIdx++] = resource;
-      else preSortedResources[backIdx--] = resource;
-    }
-
-    Map<IProject, Set<IResource>> projectsResources = new HashMap<IProject, Set<IResource>>();
-
-    for (IResource resource : preSortedResources) {
-      if (resource.getType() == IResource.PROJECT) {
-        projectsResources.put((IProject) resource, null);
-        continue;
-      }
-
-      IProject project = resource.getProject();
-
-      if (project == null) continue;
-
-      if (!projectsResources.containsKey(project))
-        projectsResources.put(project, new HashSet<IResource>());
-
-      Set<IResource> resources = projectsResources.get(project);
-
-      // if the resource set is null, it is a full shared project
-      if (resources != null) resources.add(resource);
-    }
-
-    List<IResource> additionalFilesForPartialSharing = new ArrayList<IResource>();
-
-    for (Entry<IProject, Set<IResource>> entry : projectsResources.entrySet()) {
-
-      IProject project = entry.getKey();
-      Set<IResource> resources = entry.getValue();
-
-      if (resources == /* full shared */ null) continue;
-
-      additionalFilesForPartialSharing.clear();
-
-      /*
-       * we need this file otherwise creating a new project on the remote
-       * will produce garbage because the project nature is not set /
-       * updated correctly
-       */
-      IFile projectFile = project.getFile(".project");
-
-      if (projectFile.exists()) additionalFilesForPartialSharing.add(projectFile);
-
-      // do not include them, this is causing malfunctions if developers
-      // do
-      // not use variables in their classpath but absolute paths.
-
-      // IFile classpathFile = project.getFile(".classpath");
-
-      // if (classpathFile.exists())
-      // additionalFilesForPartialSharing.add(classpathFile);
-
-      /*
-       * FIXME adding files from this folder may "corrupt" a lot of remote
-       * files. The byte content will not be corrupted, but the document
-       * provider (editor) will fail to render the file input correctly. I
-       * think we should negotiate the project encodings and forbid
-       * further proceeding if they do not match ! The next step should be
-       * to also transmit the encoding in FileActivities, because it is
-       * possible to change the encoding of files independently of the
-       * project encoding settings.
-       */
-
-      IFolder settingsFolder = project.getFolder(".settings");
-
-      if (settingsFolder.exists() /* remove to execute block */ && false) {
-
-        additionalFilesForPartialSharing.add(settingsFolder);
-
-        try {
-          for (IResource resource : settingsFolder.members()) {
-            // TODO are sub folders possible ?
-            if (resource.getType() == IResource.FILE)
-              additionalFilesForPartialSharing.add(resource);
-          }
-        } catch (CoreException e) {
-          LOG.warn("could not read the contents of the settings folder", e);
-        }
-      }
-
-      resources.addAll(additionalFilesForPartialSharing);
-    }
-
-    HashMap<IProject, List<IResource>> resources = new HashMap<IProject, List<IResource>>();
-
-    for (Entry<IProject, Set<IResource>> entry : projectsResources.entrySet())
-      resources.put(
-          entry.getKey(),
-          entry.getValue() == null ? null : new ArrayList<IResource>(entry.getValue()));
-
-    return resources;
   }
 
   private static String format(long size) {
@@ -432,18 +319,8 @@ public class CollaborationUtils {
     return String.format(Locale.US, "%.2f GB", size / (1000F * 1000F * 1000F));
   }
 
-  private static Map<saros.filesystem.IProject, List<saros.filesystem.IResource>> convert(
-      Map<IProject, List<IResource>> data) {
-
-    Map<saros.filesystem.IProject, List<saros.filesystem.IResource>> result =
-        new HashMap<saros.filesystem.IProject, List<saros.filesystem.IResource>>();
-
-    for (Entry<IProject, List<IResource>> entry : data.entrySet())
-      result.put(
-          ResourceAdapterFactory.create(entry.getKey()),
-          ResourceAdapterFactory.convertTo(entry.getValue()));
-
-    return result;
+  private static Set<saros.filesystem.IProject> convert(Set<IProject> projects) {
+    return projects.stream().map(ResourceAdapterFactory::create).collect(Collectors.toSet());
   }
 
   private static void refreshProjects(

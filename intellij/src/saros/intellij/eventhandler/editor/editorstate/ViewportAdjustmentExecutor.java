@@ -1,6 +1,6 @@
 package saros.intellij.eventhandler.editor.editorstate;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
 import com.intellij.openapi.fileEditor.FileEditorManagerListener;
@@ -9,18 +9,22 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.messages.MessageBusConnection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.apache.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import saros.editor.text.LineRange;
 import saros.editor.text.TextSelection;
 import saros.intellij.editor.LocalEditorManipulator;
 import saros.intellij.editor.ProjectAPI;
+import saros.intellij.runtime.EDTExecutor;
 
 /**
  * Queues viewport adjustments for editors that are not currently visible and executes the queued
  * adjustment once the corresponding editor is selected.
  */
 public class ViewportAdjustmentExecutor extends AbstractLocalEditorStatusChangeHandler {
+  private static final Logger log = Logger.getLogger(ViewportAdjustmentExecutor.class);
+
   private final LocalEditorManipulator localEditorManipulator;
 
   private static final Map<String, QueuedViewPortChange> queuedViewPortChanges =
@@ -78,10 +82,19 @@ public class ViewportAdjustmentExecutor extends AbstractLocalEditorStatusChangeH
 
     } else {
       editor = ProjectAPI.openEditor(project, virtualFile, false);
+
+      if (editor == null) {
+        log.warn(
+            "Failed to apply queued viewport change as no text editor could be obtained for "
+                + virtualFile);
+
+        return;
+      }
     }
 
-    ApplicationManager.getApplication()
-        .invokeAndWait(() -> localEditorManipulator.adjustViewport(editor, range, selection));
+    EDTExecutor.invokeAndWait(
+        () -> localEditorManipulator.adjustViewport(editor, range, selection),
+        ModalityState.defaultModalityState());
   }
 
   /**

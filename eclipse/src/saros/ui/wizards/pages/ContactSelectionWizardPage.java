@@ -27,7 +27,7 @@ import saros.ui.widgets.viewer.roster.events.ContactSelectionListener;
  * @author bkahlert
  */
 public class ContactSelectionWizardPage extends WizardPage {
-  private static final Logger LOG = Logger.getLogger(ContactSelectionWizardPage.class);
+  private static final Logger log = Logger.getLogger(ContactSelectionWizardPage.class);
 
   protected static final String TITLE = Messages.ContactSelectionWizardPage_title;
   protected static final String DESCRIPTION = Messages.ContactSelectionWizardPage_description;
@@ -65,10 +65,10 @@ public class ContactSelectionWizardPage extends WizardPage {
   /** This listener update the page completion if someone's presence changed. */
   private final IContactsUpdate contactsUpdate =
       (contact, type) -> {
-        if (type != UpdateType.FEATURE_SUPPORT) return;
+        if (type != UpdateType.STATUS) return;
 
         SWTUtils.runSafeSWTAsync(
-            LOG,
+            log,
             () -> {
               if (ContactSelectionWizardPage.this.getControl().isDisposed()) return;
 

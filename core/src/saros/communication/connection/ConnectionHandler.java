@@ -6,18 +6,14 @@ import org.apache.log4j.Logger;
 import org.jivesoftware.smack.Connection;
 import org.jivesoftware.smack.ConnectionConfiguration;
 import org.jivesoftware.smack.XMPPException;
-import org.jivesoftware.smack.proxy.ProxyInfo;
-import org.jivesoftware.smackx.ServiceDiscoveryManager;
 import saros.SarosConstants;
 import saros.account.XMPPAccount;
 import saros.net.ConnectionState;
 import saros.net.IConnectionManager;
-import saros.net.ResourceFeature;
 import saros.net.xmpp.IConnectionListener;
 import saros.net.xmpp.JID;
 import saros.net.xmpp.XMPPConnectionService;
 import saros.preferences.Preferences;
-import saros.repackaged.picocontainer.annotations.Nullable;
 
 /**
  * Facade for handling connection establishment and connection events. This facade should be
@@ -27,11 +23,9 @@ import saros.repackaged.picocontainer.annotations.Nullable;
 // TODO better name
 public class ConnectionHandler {
 
-  private static final Logger LOG = Logger.getLogger(ConnectionHandler.class);
+  private static final Logger log = Logger.getLogger(ConnectionHandler.class);
 
   private final XMPPConnectionService connectionService;
-
-  private final IProxyResolver proxyResolver;
 
   private final Preferences preferences;
 
@@ -55,12 +49,6 @@ public class ConnectionHandler {
 
         @Override
         public void connectionStateChanged(Connection connection, ConnectionState state) {
-
-          if (state == ConnectionState.CONNECTING) {
-            ServiceDiscoveryManager.getInstanceFor(connection)
-                .addFeature(ResourceFeature.SAROS.getIdentifier());
-          }
-
           final Exception error =
               state == ConnectionState.ERROR ? connectionService.getConnectionError() : null;
 
@@ -71,12 +59,10 @@ public class ConnectionHandler {
   public ConnectionHandler(
       final XMPPConnectionService connectionService,
       final IConnectionManager transferManager,
-      @Nullable final IProxyResolver proxyResolver,
       final Preferences preferences) {
 
     this.connectionService = connectionService;
     this.connectionManager = transferManager;
-    this.proxyResolver = proxyResolver;
     this.preferences = preferences;
 
     this.connectionService.addListener(xmppConnectionListener);
@@ -234,15 +220,14 @@ public class ConnectionHandler {
           createConnectionConfiguration(domain, server, port, useTLS, useSASL), username, password);
     } catch (Exception e) {
       if (!(e instanceof XMPPException))
-        LOG.error("internal error while connecting to the XMPP server: " + e.getMessage(), e);
+        log.error("internal error while connecting to the XMPP server: " + e.getMessage(), e);
 
       synchronized (this) {
         isConnecting = false;
       }
 
       if (callbackTmp != null && !failSilently) {
-        callbackTmp.connectingFailed(e);
-        return;
+        callbackTmp.connectingFailed(account, e);
       }
     }
   }
@@ -250,22 +235,9 @@ public class ConnectionHandler {
   private ConnectionConfiguration createConnectionConfiguration(
       String domain, String server, int port, boolean useTLS, boolean useSASL) {
 
-    ProxyInfo proxyInfo = null;
-
-    if (proxyResolver != null) {
-      if (server.length() != 0) proxyInfo = proxyResolver.resolve(server);
-      else proxyInfo = proxyResolver.resolve(domain);
-    }
-
     ConnectionConfiguration connectionConfiguration = null;
-
-    if (server.length() == 0 && proxyInfo == null)
-      connectionConfiguration = new ConnectionConfiguration(domain);
-    else if (server.length() == 0 && proxyInfo != null)
-      connectionConfiguration = new ConnectionConfiguration(domain, proxyInfo);
-    else if (server.length() != 0 && proxyInfo == null)
-      connectionConfiguration = new ConnectionConfiguration(server, port, domain);
-    else connectionConfiguration = new ConnectionConfiguration(server, port, domain, proxyInfo);
+    if (server.isEmpty()) connectionConfiguration = new ConnectionConfiguration(domain);
+    else connectionConfiguration = new ConnectionConfiguration(server, port, domain);
 
     connectionConfiguration.setSASLAuthenticationEnabled(useSASL);
 
@@ -288,7 +260,7 @@ public class ConnectionHandler {
       try {
         listener.connectionStateChanged(state, error);
       } catch (Exception e) {
-        LOG.error("internal error in listener: " + listener, e);
+        log.error("internal error in listener: " + listener, e);
       }
     }
   }

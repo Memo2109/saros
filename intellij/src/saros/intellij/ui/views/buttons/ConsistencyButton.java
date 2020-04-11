@@ -1,6 +1,5 @@
 package saros.intellij.ui.views.buttons;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -13,6 +12,7 @@ import saros.activities.SPath;
 import saros.concurrent.watchdog.ConsistencyWatchdogClient;
 import saros.concurrent.watchdog.IsInconsistentObservable;
 import saros.filesystem.IResource;
+import saros.intellij.runtime.EDTExecutor;
 import saros.intellij.ui.Messages;
 import saros.intellij.ui.actions.ConsistencyAction;
 import saros.intellij.ui.util.DialogUtils;
@@ -33,7 +33,7 @@ import saros.session.SessionEndReason;
  * <p>FIXME: Remove awkward session handling together with UI components created with session.
  */
 public class ConsistencyButton extends AbstractSessionToolbarButton {
-  private static final Logger LOG = Logger.getLogger(ConsistencyButton.class);
+  private static final Logger log = Logger.getLogger(ConsistencyButton.class);
 
   private boolean previouslyInConsistentState = true;
 
@@ -46,7 +46,7 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
 
           if (!sessionInconsistencyState.isInconsistent) return;
 
-          setEnabledFromUIThread(false);
+          setEnabled(false);
 
           final Set<SPath> paths =
               new HashSet<>(sessionInconsistencyState.watchdogClient.getPathsWithWrongChecksums());
@@ -64,7 +64,7 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
             sessionInconsistencyState.action.execute();
           }
 
-          setEnabledFromUIThread(true);
+          setEnabled(true);
         }
       };
 
@@ -91,7 +91,9 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
   }
 
   @Override
-  void disposeComponents() {
+  public void dispose() {
+    super.dispose();
+
     inconsistentObservable.remove(isConsistencyListener);
   }
 
@@ -113,7 +115,7 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
       setSarosSession(null);
     }
 
-    setEnabledFromUIThread(false);
+    setEnabled(false);
     setToolTipText(Messages.ConsistencyButton_tooltip_functionality);
     setButtonIcon(IconManager.IN_SYNC_ICON);
   }
@@ -149,11 +151,11 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
     sessionInconsistencyState.isInconsistent = isInconsistent;
 
     if (isInconsistent) {
-      setEnabledFromUIThread(true);
+      setEnabled(true);
       setButtonIcon(IconManager.OUT_OF_SYNC_ICON);
       setToolTipText(Messages.ConsistencyButton_tooltip_inconsistency_detected);
     } else {
-      setEnabledFromUIThread(false);
+      setEnabled(false);
       setButtonIcon(IconManager.IN_SYNC_ICON);
       setToolTipText(Messages.ConsistencyButton_tooltip_no_inconsistency);
     }
@@ -180,9 +182,9 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
       return;
     }
 
-    LOG.debug("Inconsistency indicator goes: " + (isInconsistent ? "on" : "off"));
+    log.debug("Inconsistency indicator goes: " + (isInconsistent ? "on" : "off"));
 
-    ApplicationManager.getApplication().invokeLater(() -> setInconsistent(isInconsistent));
+    EDTExecutor.invokeLater(() -> setInconsistent(isInconsistent));
 
     if (!isInconsistent) {
       if (!previouslyInConsistentState) {
@@ -205,22 +207,16 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
 
     final String files = createInconsistentPathsMessage(paths);
 
-    ApplicationManager.getApplication()
-        .invokeLater(
-            () -> {
-              if (files.isEmpty()) {
-                NotificationPanel.showWarning(
-                    Messages.ConsistencyButton_message_inconsistency_detected_no_files,
-                    Messages.ConsistencyButton_title_inconsistency_detected);
+    if (files.isEmpty()) {
+      NotificationPanel.showWarning(
+          Messages.ConsistencyButton_message_inconsistency_detected_no_files,
+          Messages.ConsistencyButton_title_inconsistency_detected);
 
-                return;
-              }
-
-              NotificationPanel.showWarning(
-                  MessageFormat.format(
-                      Messages.ConsistencyButton_message_inconsistency_detected, files),
-                  Messages.ConsistencyButton_title_inconsistency_detected);
-            });
+    } else {
+      NotificationPanel.showWarning(
+          MessageFormat.format(Messages.ConsistencyButton_message_inconsistency_detected, files),
+          Messages.ConsistencyButton_title_inconsistency_detected);
+    }
   }
 
   private String createConfirmationMessage(Set<SPath> paths) {
@@ -244,7 +240,7 @@ public class ConsistencyButton extends AbstractSessionToolbarButton {
       IResource resource = path.getResource();
 
       if (resource == null) {
-        LOG.warn("Inconsistent resource " + path + " could not be " + "found.");
+        log.warn("Inconsistent resource " + path + " could not be " + "found.");
 
         continue;
       }

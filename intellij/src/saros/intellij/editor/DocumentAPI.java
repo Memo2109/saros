@@ -9,7 +9,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import saros.intellij.filesystem.Filesystem;
+import saros.intellij.runtime.FilesystemRunner;
 
 /**
  * Wrapper for interacting with the Intellij document API.
@@ -37,7 +37,7 @@ public class DocumentAPI {
       return null;
     }
 
-    return Filesystem.runReadAction(() -> fileDocumentManager.getDocument(virtualFile));
+    return FilesystemRunner.runReadAction(() -> fileDocumentManager.getDocument(virtualFile));
   }
 
   /**
@@ -53,18 +53,41 @@ public class DocumentAPI {
   }
 
   /**
+   * Returns whether the document corresponding to the given file has unsaved changes.
+   *
+   * <p>Resources that don't have a matching document (i.e. that can't be opened in a text editor)
+   * are always seen as unmodified.
+   *
+   * @param file the file to check for unsaved changes
+   * @return whether the document corresponding to the given file has unsaved changes
+   */
+  public static boolean hasUnsavedChanges(@NotNull VirtualFile file) {
+    return fileDocumentManager.isFileModified(file);
+  }
+
+  /**
+   * Returns whether the given document has unsaved changes.
+   *
+   * @param document the document to check for unsaved changes
+   * @return whether the given document has unsaved changes
+   */
+  public static boolean hasUnsavedChanges(@NotNull Document document) {
+    return fileDocumentManager.isDocumentUnsaved(document);
+  }
+
+  /**
    * Saves the given document in the UI thread.
    *
    * @param document the document to save.
    */
   public static void saveDocument(final Document document) {
-    Filesystem.runWriteAction(
+    FilesystemRunner.runWriteAction(
         () -> fileDocumentManager.saveDocument(document), ModalityState.NON_MODAL);
   }
 
   /** Saves all documents in the UI thread. */
   public static void saveAllDocuments() {
-    Filesystem.runWriteAction(fileDocumentManager::saveAllDocuments, ModalityState.NON_MODAL);
+    FilesystemRunner.runWriteAction(fileDocumentManager::saveAllDocuments, ModalityState.NON_MODAL);
   }
 
   /**
@@ -100,10 +123,10 @@ public class DocumentAPI {
               commandName,
               commandProcessor.getCurrentCommandGroupId(),
               UndoConfirmationPolicy.REQUEST_CONFIRMATION,
-              document);
+              false);
         };
 
-    Filesystem.runWriteAction(insertCommand, ModalityState.defaultModalityState());
+    FilesystemRunner.runWriteAction(insertCommand, ModalityState.defaultModalityState());
   }
 
   /**
@@ -114,18 +137,18 @@ public class DocumentAPI {
    * project.
    *
    * @param project the project to assign the resulting deletion action to
-   * @param doc the document to delete text from
+   * @param document the document to delete text from
    * @param start the start offset of the range to delete
    * @param end the end offset of the range to delete
    * @see Document#deleteString(int, int)
    * @see CommandProcessor
    */
   static void deleteText(
-      @NotNull Project project, @NotNull final Document doc, final int start, final int end) {
+      @NotNull Project project, @NotNull final Document document, final int start, final int end) {
 
     Runnable deletionCommand =
         () -> {
-          Runnable deleteRange = () -> doc.deleteString(start, end);
+          Runnable deleteRange = () -> document.deleteString(start, end);
 
           String commandName = "Saros text deletion from index " + start + " to " + end;
 
@@ -135,9 +158,9 @@ public class DocumentAPI {
               commandName,
               commandProcessor.getCurrentCommandGroupId(),
               UndoConfirmationPolicy.REQUEST_CONFIRMATION,
-              doc);
+              false);
         };
 
-    Filesystem.runWriteAction(deletionCommand, ModalityState.defaultModalityState());
+    FilesystemRunner.runWriteAction(deletionCommand, ModalityState.defaultModalityState());
   }
 }
